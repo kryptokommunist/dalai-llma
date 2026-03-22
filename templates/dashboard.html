@@ -1,0 +1,3805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DalaiLLMa - Wellbeing Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
+    <script src="https://cdn.jsdelivr.net/npm/wordcloud@1.2.2/src/wordcloud2.min.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0f0f14;
+            --bg-card: #1a1a24;
+            --bg-card-hover: #22222e;
+            --text-primary: #f0f0f5;
+            --text-secondary: #9090a0;
+            --accent-blue: #4a9eff;
+            --accent-purple: #a855f7;
+            --accent-green: #22c55e;
+            --accent-red: #ef4444;
+            --accent-orange: #f97316;
+            --accent-yellow: #eab308;
+            --border-color: #2a2a3a;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .dashboard {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+            padding: 2rem;
+            background: linear-gradient(135deg, rgba(74, 158, 255, 0.1), rgba(168, 85, 247, 0.1));
+            border-radius: 20px;
+            border: 1px solid var(--border-color);
+        }
+
+        .range-selector {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .range-selector select {
+            padding: 0.5rem 1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .range-selector select:hover {
+            border-color: var(--accent-blue);
+        }
+
+        .range-selector label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .range-presets {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .preset-btn {
+            padding: 0.35rem 0.75rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .preset-btn:hover {
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
+        }
+
+        .preset-btn.active {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: white;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        .date-range {
+            margin-top: 1rem;
+            padding: 0.5rem 1.5rem;
+            background: var(--bg-card);
+            border-radius: 50px;
+            display: inline-block;
+            font-size: 0.9rem;
+            color: var(--accent-blue);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 1.5rem;
+            border: 1px solid var(--border-color);
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(74, 158, 255, 0.1);
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Info button styles */
+        .info-btn {
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            font-family: Georgia, serif;
+            font-style: italic;
+        }
+
+        .info-btn:hover {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: white;
+        }
+
+        .chart-card {
+            position: relative;
+        }
+
+        .chart-info-btn {
+            position: absolute;
+            top: 1.25rem;
+            right: 1.25rem;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            font-family: Georgia, serif;
+            font-style: italic;
+            z-index: 10;
+        }
+
+        .chart-info-btn:hover {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: white;
+        }
+
+        /* Info Modal */
+        .info-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s;
+        }
+
+        .info-modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .info-modal {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 1.5rem;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            transform: scale(0.9);
+            transition: transform 0.2s;
+        }
+
+        .info-modal-overlay.active .info-modal {
+            transform: scale(1);
+        }
+
+        .info-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .info-modal-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--accent-blue);
+        }
+
+        .info-modal-close {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            transition: all 0.2s;
+        }
+
+        .info-modal-close:hover {
+            background: var(--accent-red);
+            border-color: var(--accent-red);
+            color: white;
+        }
+
+        .info-modal-body {
+            font-size: 0.9rem;
+            line-height: 1.7;
+            color: var(--text-secondary);
+        }
+
+        .info-modal-body h4 {
+            color: var(--text-primary);
+            margin: 1rem 0 0.5rem 0;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .info-modal-body h4:first-child {
+            margin-top: 0;
+        }
+
+        .info-modal-body ul {
+            margin: 0.5rem 0;
+            padding-left: 1.25rem;
+        }
+
+        .info-modal-body li {
+            margin-bottom: 0.35rem;
+        }
+
+        .info-modal-body code {
+            background: var(--bg-dark);
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            color: var(--accent-purple);
+        }
+
+        .formula-box {
+            background: var(--bg-dark);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            margin: 0.75rem 0;
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: var(--accent-green);
+            border-left: 3px solid var(--accent-green);
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+
+        .stat-value.positive { color: var(--accent-green); }
+        .stat-value.negative { color: var(--accent-red); }
+        .stat-value.neutral { color: var(--accent-blue); }
+
+        .stat-trend {
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+        }
+
+        .trend-up { color: var(--accent-green); }
+        .trend-down { color: var(--accent-red); }
+
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        @media (max-width: 1200px) {
+            .chart-grid { grid-template-columns: 1fr; }
+        }
+
+        .chart-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 1.5rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .chart-card.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .chart-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .chart-title::before {
+            content: '';
+            width: 4px;
+            height: 20px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            border-radius: 2px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+
+        .chart-container.tall {
+            height: 400px;
+        }
+
+        .wellbeing-gauge {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+        }
+
+        .gauge-circle {
+            position: relative;
+            width: 200px;
+            height: 200px;
+        }
+
+        .gauge-bg {
+            fill: none;
+            stroke: var(--border-color);
+            stroke-width: 12;
+        }
+
+        .gauge-fill {
+            fill: none;
+            stroke-width: 12;
+            stroke-linecap: round;
+            transform: rotate(-90deg);
+            transform-origin: center;
+            transition: stroke-dasharray 1s ease-out;
+        }
+
+        .gauge-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .gauge-value {
+            font-size: 3rem;
+            font-weight: 700;
+        }
+
+        .gauge-label {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .projection-card {
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(74, 158, 255, 0.1));
+            border-color: var(--accent-green);
+        }
+
+        .projection-timeline {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 1rem;
+            padding: 1rem;
+            background: var(--bg-dark);
+            border-radius: 12px;
+        }
+
+        .projection-point {
+            text-align: center;
+        }
+
+        .projection-score {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .projection-date {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .projection-arrow {
+            color: var(--accent-green);
+            font-size: 1.5rem;
+        }
+
+        #wordcloud {
+            width: 100%;
+            height: 260px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #wordcloud canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        .wordcloud-controls {
+            margin-bottom: 0.75rem;
+        }
+
+        .wordcloud-slider {
+            width: 100%;
+            height: 6px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: var(--bg-dark);
+            border-radius: 3px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .wordcloud-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            background: var(--accent-blue);
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        .wordcloud-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        .wordcloud-slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            background: var(--accent-blue);
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+
+        .wordcloud-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .wc-label {
+            cursor: pointer;
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.15rem;
+        }
+
+        .wc-label:hover {
+            color: var(--text-primary);
+        }
+
+        .wc-label.active {
+            background: var(--accent-blue);
+            color: white;
+        }
+
+        .wc-word-count {
+            font-size: 0.6rem;
+            opacity: 0.7;
+        }
+
+        .wc-label.active .wc-word-count {
+            opacity: 0.9;
+        }
+
+        /* People section styles */
+        .people-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .people-header .chart-title {
+            margin-bottom: 0;
+        }
+
+        .back-btn {
+            display: none;
+            padding: 0.5rem 1rem;
+            background: var(--bg-dark);
+            border: 1px solid var(--accent-blue);
+            color: var(--accent-blue);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+
+        .back-btn:hover {
+            background: var(--accent-blue);
+            color: var(--bg-dark);
+        }
+
+        .back-btn.visible {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .people-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 0.75rem;
+            max-height: 400px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+
+        .people-grid::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .people-grid::-webkit-scrollbar-track {
+            background: var(--bg-dark);
+            border-radius: 3px;
+        }
+
+        .people-grid::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+
+        .person-card {
+            background: var(--bg-dark);
+            border-radius: 12px;
+            padding: 1rem;
+            text-align: center;
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .person-card:hover {
+            border-color: var(--accent-blue);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(74, 158, 255, 0.15);
+        }
+
+        .person-card:hover .person-tooltip {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .person-name {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .person-mentions {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+        }
+
+        .person-context {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
+        .person-sentiment {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            margin-top: 0.5rem;
+            cursor: help;
+            position: relative;
+        }
+
+        .person-sentiment:hover .score-tooltip {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .sentiment-positive { background: rgba(34, 197, 94, 0.2); color: var(--accent-green); }
+        .sentiment-negative { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); }
+        .sentiment-neutral { background: rgba(144, 144, 160, 0.2); color: var(--text-secondary); }
+
+        /* Tooltips */
+        .person-tooltip {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%) translateY(10px);
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 1rem;
+            width: 280px;
+            text-align: left;
+            z-index: 100;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+            pointer-events: none;
+        }
+
+        .person-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 8px solid transparent;
+            border-top-color: var(--border-color);
+        }
+
+        .tooltip-title {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--accent-blue);
+        }
+
+        .tooltip-summary {
+            font-size: 0.8rem;
+            line-height: 1.5;
+            color: var(--text-secondary);
+        }
+
+        .tooltip-months {
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border-color);
+            font-size: 0.75rem;
+        }
+
+        .tooltip-months span {
+            display: inline-block;
+            padding: 0.2rem 0.4rem;
+            background: var(--bg-dark);
+            border-radius: 4px;
+            margin-right: 0.25rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .score-tooltip {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.75rem;
+            width: 220px;
+            text-align: left;
+            z-index: 101;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+            font-size: 0.75rem;
+            line-height: 1.4;
+            margin-bottom: 8px;
+        }
+
+        .score-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-top-color: var(--border-color);
+        }
+
+        .score-scale {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 0.5rem;
+            padding-top: 0.5rem;
+            border-top: 1px solid var(--border-color);
+            font-size: 0.65rem;
+        }
+
+        /* Person detail view */
+        .person-detail {
+            display: none;
+        }
+
+        .person-detail.active {
+            display: block;
+        }
+
+        .people-grid.hidden {
+            display: none;
+        }
+
+        .detail-header {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .detail-avatar {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            font-weight: 700;
+            color: white;
+        }
+
+        .detail-info h2 {
+            font-size: 1.5rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .detail-info .context {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .detail-stats {
+            display: flex;
+            gap: 2rem;
+            margin-top: 0.75rem;
+        }
+
+        .detail-stat {
+            text-align: center;
+        }
+
+        .detail-stat-value {
+            font-size: 1.25rem;
+            font-weight: 700;
+        }
+
+        .detail-stat-label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        .detail-summary {
+            background: var(--bg-dark);
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 1.5rem;
+            line-height: 1.6;
+            font-size: 0.9rem;
+        }
+
+        .detail-chart {
+            height: 250px;
+        }
+
+        .events-timeline {
+            max-height: 400px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+
+        .events-timeline::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .events-timeline::-webkit-scrollbar-track {
+            background: var(--bg-dark);
+            border-radius: 3px;
+        }
+
+        .events-timeline::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+
+        .event-item {
+            display: flex;
+            gap: 1rem;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .event-date {
+            flex-shrink: 0;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            width: 70px;
+        }
+
+        .event-content {
+            flex: 1;
+        }
+
+        .event-title {
+            font-size: 0.9rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .event-category {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 10px;
+            display: inline-block;
+        }
+
+        .cat-health { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); }
+        .cat-therapy { background: rgba(168, 85, 247, 0.2); color: var(--accent-purple); }
+        .cat-social { background: rgba(34, 197, 94, 0.2); color: var(--accent-green); }
+        .cat-housing { background: rgba(249, 115, 22, 0.2); color: var(--accent-orange); }
+        .cat-work { background: rgba(74, 158, 255, 0.2); color: var(--accent-blue); }
+        .cat-psychological { background: rgba(234, 179, 8, 0.2); color: var(--accent-yellow); }
+        .cat-relationship { background: rgba(236, 72, 153, 0.3); color: #ec4899; font-weight: 600; }
+
+        .monthly-summary {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+        }
+
+        @media (max-width: 900px) {
+            .monthly-summary { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        .month-card {
+            background: var(--bg-dark);
+            border-radius: 12px;
+            padding: 1.25rem;
+            border-left: 4px solid var(--accent-blue);
+        }
+
+        .month-name {
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+        }
+
+        .month-stats {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        .month-stat {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .month-themes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+            margin-top: 0.75rem;
+        }
+
+        .theme-tag {
+            font-size: 0.65rem;
+            padding: 0.2rem 0.4rem;
+            background: var(--bg-card);
+            border-radius: 4px;
+            color: var(--text-secondary);
+        }
+
+        /* Insights Card Styles */
+        .insights-card {
+            background: linear-gradient(135deg, var(--bg-card), rgba(74, 158, 255, 0.05));
+            border-color: var(--accent-blue);
+        }
+
+        .insights-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+        }
+
+        @media (max-width: 1000px) {
+            .insights-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .insight-column {
+            background: var(--bg-dark);
+            border-radius: 12px;
+            padding: 1.25rem;
+        }
+
+        .insight-column h4 {
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .insight-column.focus h4 {
+            color: var(--accent-green);
+        }
+
+        .insight-column.reduce h4 {
+            color: var(--accent-orange);
+        }
+
+        .insight-column.actions h4 {
+            color: var(--accent-blue);
+        }
+
+        .insight-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            margin-bottom: 0.85rem;
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+
+        .insight-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .insight-icon {
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            margin-top: 2px;
+        }
+
+        .insight-column.focus .insight-icon {
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--accent-green);
+        }
+
+        .insight-column.reduce .insight-icon {
+            background: rgba(249, 115, 22, 0.2);
+            color: var(--accent-orange);
+        }
+
+        .insight-column.actions .insight-icon {
+            background: rgba(74, 158, 255, 0.2);
+            color: var(--accent-blue);
+        }
+
+        .insight-text {
+            color: var(--text-secondary);
+        }
+
+        .insight-text strong {
+            color: var(--text-primary);
+        }
+
+        .insight-timeframe {
+            display: inline-block;
+            background: var(--bg-card);
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            margin-left: 0.25rem;
+        }
+
+        .insight-trend {
+            font-size: 0.75rem;
+            margin-top: 0.25rem;
+            opacity: 0.8;
+        }
+
+        .insight-trend.positive {
+            color: var(--accent-green);
+        }
+
+        .insight-trend.negative {
+            color: var(--accent-red);
+        }
+
+        .projection-section {
+            background: linear-gradient(135deg, var(--bg-card), rgba(34, 197, 94, 0.05));
+            border-radius: 20px;
+            padding: 2rem;
+            margin-top: 2rem;
+            border: 1px solid var(--accent-green);
+        }
+
+        .projection-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .projection-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-green);
+        }
+
+        .forecast-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 1rem;
+        }
+
+        .forecast-month {
+            text-align: center;
+            padding: 1rem;
+            background: var(--bg-dark);
+            border-radius: 12px;
+        }
+
+        .forecast-month.current {
+            border: 2px solid var(--accent-blue);
+        }
+
+        .forecast-month.projected {
+            opacity: 0.8;
+            border: 1px dashed var(--accent-green);
+        }
+
+        .forecast-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .forecast-score {
+            font-size: 1.75rem;
+            font-weight: 700;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 3rem;
+            padding: 1.5rem;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .click-hint {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            margin-top: 0.5rem;
+            opacity: 0.7;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .generate-insights-btn:hover {
+            filter: brightness(1.1);
+            transform: translateY(-1px);
+        }
+
+        .generate-insights-btn:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <header>
+            <h1>DalaiLLMa</h1>
+            <p class="subtitle">Wellbeing Dashboard</p>
+            <div class="range-selector">
+                <label>From:</label>
+                <select id="startMonth" onchange="updateDateRange()"></select>
+                <label>To:</label>
+                <select id="endMonth" onchange="updateDateRange()"></select>
+            </div>
+            <div class="range-presets">
+                <button class="preset-btn" onclick="setPreset('3m')">Last 3 months</button>
+                <button class="preset-btn" onclick="setPreset('6m')">Last 6 months</button>
+                <button class="preset-btn" onclick="setPreset('1y')">Last year</button>
+                <button class="preset-btn" onclick="setPreset('all')">All time</button>
+                <span style="margin-left: 1rem; border-left: 1px solid var(--border-color); padding-left: 1rem; display: inline-flex; gap: 1rem; align-items: center;">
+                    <label style="font-size: 0.75rem; color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem;">
+                        <input type="checkbox" id="weeklyToggle" onchange="toggleWeeklyView(this.checked)" style="cursor: pointer;">
+                        Weekly
+                    </label>
+                    <label style="font-size: 0.75rem; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 0.4rem;" title="Applies moving average to trend charts only (not current stats)">
+                        Chart smoothing:
+                        <select id="maSelect" onchange="toggleMovingAverage(parseInt(this.value))" style="padding: 0.2rem 0.4rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); font-size: 0.75rem; cursor: pointer;">
+                            <option value="0">None</option>
+                            <option value="3">3-period MA</option>
+                            <option value="5">5-period MA</option>
+                            <option value="7">7-period MA</option>
+                        </select>
+                    </label>
+                </span>
+            </div>
+            <div class="date-range" id="dateRangeDisplay">Aug 2024 - Mar 2026</div>
+        </header>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <button class="info-btn" onclick="showInfo('conversations')">i</button>
+                <div class="stat-label">Total Conversations</div>
+                <div class="stat-value neutral">145</div>
+                <div class="stat-trend">~1.6 per day</div>
+            </div>
+            <div class="stat-card">
+                <button class="info-btn" onclick="showInfo('messages')">i</button>
+                <div class="stat-label">Total Messages</div>
+                <div class="stat-value neutral">1,374</div>
+                <div class="stat-trend">~9 per conversation</div>
+            </div>
+            <div class="stat-card">
+                <button class="info-btn" onclick="showInfo('sentiment')">i</button>
+                <div class="stat-label">Average Sentiment</div>
+                <div class="stat-value positive">+0.01</div>
+                <div class="stat-trend trend-up">+0.93 from W01 low</div>
+            </div>
+            <div class="stat-card">
+                <button class="info-btn" onclick="showInfo('wellbeing')">i</button>
+                <div class="stat-label">Current Wellbeing</div>
+                <div class="stat-value positive">77</div>
+                <div class="stat-trend trend-up">+45 from December</div>
+            </div>
+            <div class="stat-card">
+                <button class="info-btn" onclick="showInfo('trend')">i</button>
+                <div class="stat-label">Trend</div>
+                <div class="stat-value positive">Improving</div>
+                <div class="stat-trend trend-up">+15 points/month</div>
+            </div>
+        </div>
+
+        <div class="chart-grid">
+            <div class="chart-card full-width">
+                <button class="chart-info-btn" onclick="showInfo('timeline')">i</button>
+                <div class="chart-title">Sentiment & Wellbeing Over Time</div>
+                <div style="margin-bottom: 0.5rem; display: flex; gap: 1.5rem; flex-wrap: wrap;">
+                    <label style="font-size: 0.85rem; color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem;">
+                        <input type="checkbox" id="showEventsToggle" onchange="toggleEventAnnotations(this.checked)" style="cursor: pointer;">
+                        Show key events
+                    </label>
+                    <label style="font-size: 0.85rem; color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem;">
+                        <input type="checkbox" id="showChangeRateToggle" onchange="toggleChangeRate(this.checked)" style="cursor: pointer;">
+                        Show change rate
+                    </label>
+                </div>
+                <div class="chart-container tall">
+                    <canvas id="sentimentChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <button class="chart-info-btn" onclick="showInfo('gauge')">i</button>
+                <div class="chart-title">Wellbeing Score</div>
+                <div class="chart-container">
+                    <div class="wellbeing-gauge">
+                        <div class="gauge-circle">
+                            <svg viewBox="0 0 200 200">
+                                <circle class="gauge-bg" cx="100" cy="100" r="85"/>
+                                <circle class="gauge-fill" id="gaugeFill" cx="100" cy="100" r="85"/>
+                            </svg>
+                            <div class="gauge-text">
+                                <div class="gauge-value" id="gaugeValue">77</div>
+                                <div class="gauge-label">out of 100</div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 1rem; text-align: center;">
+                            <span style="color: var(--accent-green);">+45 points</span>
+                            <span style="color: var(--text-secondary);"> since December</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <button class="chart-info-btn" onclick="showInfo('emotions')">i</button>
+                <div class="chart-title">Emotional Balance</div>
+                <div class="chart-container">
+                    <canvas id="emotionChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <button class="chart-info-btn" onclick="showInfo('wordcloud')">i</button>
+                <div class="chart-title">Word Cloud</div>
+                <div class="wordcloud-controls">
+                    <input type="range" id="wordcloudSlider" min="0" max="4" value="0" class="wordcloud-slider" oninput="updateWordCloud(this.value)">
+                    <div class="wordcloud-labels" id="wordcloudLabels">
+                        <!-- Dynamically populated -->
+                    </div>
+                </div>
+                <div id="wordcloud"></div>
+            </div>
+
+            <div class="chart-card">
+                <button class="chart-info-btn" onclick="showInfo('activity')">i</button>
+                <div class="chart-title">Weekly Activity</div>
+                <div class="chart-container">
+                    <canvas id="activityChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-grid">
+            <div class="chart-card" id="peopleCard">
+                <button class="chart-info-btn" onclick="showInfo('people')">i</button>
+                <div class="people-header">
+                    <div class="chart-title">People Mentioned</div>
+                </div>
+
+                <div class="people-grid" id="peopleGrid">
+                    <!-- Dynamically populated by updatePeopleGrid() -->
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <button class="chart-info-btn" onclick="showInfo('events')">i</button>
+                <div class="chart-title">Key Events Timeline</div>
+                <div class="events-timeline">
+                    <!-- Dynamically populated by updateEventsTimeline() -->
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-grid">
+            <div class="chart-card">
+                <button class="chart-info-btn" onclick="showInfo('drama')">i</button>
+                <div class="chart-title">Drama Triangle Patterns</div>
+                <div class="chart-container">
+                    <canvas id="dramaChart"></canvas>
+                </div>
+            </div>
+            <div class="chart-card">
+                <button class="chart-info-btn" onclick="showInfo('empowered')">i</button>
+                <div class="chart-title">Victim vs Empowered Language</div>
+                <div class="chart-container">
+                    <canvas id="empoweredChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Category Breakdown Section -->
+        <div class="chart-grid">
+            <div class="chart-card">
+                <button class="chart-info-btn" onclick="showInfo('category')">i</button>
+                <div class="chart-title">Message Categories</div>
+                <div class="chart-container">
+                    <canvas id="categoryChart"></canvas>
+                </div>
+            </div>
+            <div class="chart-card">
+                <button class="chart-info-btn" onclick="showInfo('victimLlm')">i</button>
+                <div class="chart-title">Victim vs Empowered (LLM Analysis)</div>
+                <div class="chart-container">
+                    <canvas id="victimLlmChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Category Over Time -->
+        <div class="chart-card full-width" style="margin-bottom: 2rem;">
+            <button class="chart-info-btn" onclick="showInfo('categoryTime')">i</button>
+            <div class="chart-title">Category Trends Over Time</div>
+            <div class="chart-container tall">
+                <canvas id="categoryTimeChart"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-card" style="margin-bottom: 2rem;">
+            <button class="chart-info-btn" onclick="showInfo('monthly')">i</button>
+            <div class="chart-title">Monthly Summary</div>
+            <div class="monthly-summary">
+                <!-- Dynamically populated by updateMonthlySummary() -->
+            </div>
+        </div>
+
+        <!-- Insights & Recommendations Card -->
+        <div class="chart-card insights-card" style="margin-bottom: 2rem;">
+            <button class="chart-info-btn" onclick="showInfo('insights')">i</button>
+            <div class="chart-title">Insights & Recommendations</div>
+            <div class="insights-container" id="insightsContainer">
+                <!-- Dynamically populated by updateInsights() -->
+            </div>
+        </div>
+
+        <!-- LLM Insights Card (dynamically loaded) -->
+        <div class="chart-card" id="llmInsightsCard" style="margin-bottom: 2rem; background: linear-gradient(135deg, var(--bg-card), rgba(59, 130, 246, 0.05)); border-color: var(--accent-blue);">
+            <button class="chart-info-btn" onclick="showInfo('llminsights')">i</button>
+            <div class="chart-title">LLM Analysis <span style="font-size: 0.75rem; color: var(--accent-blue); font-weight: normal;">(from llm_insights.json)</span></div>
+            <div id="llmInsightsContent" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
+                <div style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+                    Loading LLM insights...
+                </div>
+            </div>
+        </div>
+
+        <!-- Deep Analysis Card -->
+
+                <!-- Patterns Identified -->
+                <div style="background: var(--bg-dark); border-radius: 12px; padding: 1.25rem;">
+                    <h4 style="color: var(--accent-orange); margin-bottom: 0.75rem; font-size: 0.95rem;">Patterns Identified</h4>
+                    <ul style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.7; padding-left: 1.25rem; margin: 0;">
+                        <li><strong style="color: var(--text-primary);">December vulnerability</strong> - avg wellbeing 64 vs 78 other months</li>
+                        <li><strong style="color: var(--text-primary);">High usage = struggle</strong> - >600 msgs/month → wellbeing 68</li>
+                        <li><strong style="color: var(--text-primary);">Low usage = stability</strong> - <400 msgs/month → wellbeing 85</li>
+                        <li><strong style="color: var(--text-primary);">Resilience pattern</strong> - 3 crisis cycles, always strong recovery</li>
+                    </ul>
+                </div>
+
+                <!-- Actionable Steps -->
+                <div style="background: var(--bg-dark); border-radius: 12px; padding: 1.25rem;">
+                    <h4 style="color: var(--accent-green); margin-bottom: 0.75rem; font-size: 0.95rem;">Actionable Steps</h4>
+                    <ol style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.7; padding-left: 1.25rem; margin: 0;">
+                        <li><strong style="color: var(--text-primary);">Pre-plan December</strong> - schedule social connections, avoid isolation</li>
+                        <li><strong style="color: var(--text-primary);">Monitor Claude usage</strong> - spikes above 600 msgs = early warning</li>
+                        <li><strong style="color: var(--text-primary);">Document recovery</strong> - what worked Jan-Mar 2026</li>
+                        <li><strong style="color: var(--text-primary);">If therapy again:</strong> licensed, time-limited, challenging</li>
+                    </ol>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="projection-section" style="position: relative;" id="projectionSection">
+            <button class="chart-info-btn" onclick="showInfo('projection')" style="top: 1.5rem; right: 1.5rem;">i</button>
+            <div class="projection-header">
+                <div class="projection-title">Wellbeing Trajectory</div>
+                <p style="color: var(--text-secondary); margin-top: 0.5rem;" id="projectionSubtitle">Based on selected time range</p>
+            </div>
+            <div class="forecast-grid" id="forecastGrid">
+                <!-- Dynamically populated -->
+            </div>
+            <div style="text-align: center; margin-top: 2rem; padding: 1.5rem; background: var(--bg-dark); border-radius: 12px;" id="projectionSummary">
+                <!-- Dynamically populated -->
+            </div>
+        </div>
+
+        <footer>
+            <p id="footerStats">Generated from conversation data | __DATE_RANGE__</p>
+            <p style="margin-top: 0.5rem;">Sentiment analysis dashboard built from Claude conversation history</p>
+        </footer>
+    </div>
+
+    <!-- Info Modal -->
+    <div class="info-modal-overlay" id="infoModal" onclick="closeInfoModal(event)">
+        <div class="info-modal" onclick="event.stopPropagation()">
+            <div class="info-modal-header">
+                <div class="info-modal-title" id="modalTitle">How It's Calculated</div>
+                <button class="info-modal-close" onclick="closeInfoModal()">&times;</button>
+            </div>
+            <div class="info-modal-body" id="modalBody"></div>
+        </div>
+    </div>
+
+    <script>
+        // ===========================================
+        // FULL MONTHLY DATA (Aug 2024 - Mar 2026)
+        // ===========================================
+        /* __MONTHLY_DATA__ */
+
+        // Weekly data for detailed view
+        /* __WEEKLY_DATA__ */
+
+        // All events data - extracted from conversations
+        /* __EVENTS_DATA__ */
+
+        // Karpman Drama Triangle data (normalized per 100 messages)
+        /* __DRAMA_TRIANGLE_DATA__ */
+
+        // All people data with monthly breakdowns and sentiment
+        /* __PEOPLE_DATA__ */
+        // Current filtered data
+        let filteredData = [...allMonthlyData];       // Raw data for stats, gauges, summaries
+        let filteredDataSmoothed = [...allMonthlyData]; // Smoothed data for trend charts only
+        let startIdx = 0;
+        let endIdx = allMonthlyData.length - 1;
+        let filteredMonths = allMonthlyData.map(m => m.month);
+        let isWeeklyView = false;
+        let movingAverageWindow = 0; // 0 = off, 3 = 3-period MA
+
+        // Category analysis data (loaded async)
+        // Category data - embedded by build script or loaded via fetch
+        /* __CATEGORY_DATA__ */
+        if (typeof categoryData === 'undefined') {
+            var categoryData = null;
+        }
+        let categoryChart = null;
+        let victimLlmChart = null;
+        let categoryTimeChart = null;
+
+        // Helper: convert week string to approximate month
+        function weekToMonth(week) {
+            const [year, w] = week.split('-W');
+            const weekNum = parseInt(w);
+            const month = Math.ceil(weekNum / 4.33);
+            return `${year}-${String(Math.min(month, 12)).padStart(2, '0')}`;
+        }
+
+        // Helper: calculate moving average
+        function applyMovingAverage(data, window) {
+            if (window <= 1) return data;
+            return data.map((item, i) => {
+                const start = Math.max(0, i - window + 1);
+                const slice = data.slice(start, i + 1);
+                return {
+                    ...item,
+                    sentiment: slice.reduce((a, b) => a + b.sentiment, 0) / slice.length,
+                    wellbeing: Math.round(slice.reduce((a, b) => a + b.wellbeing, 0) / slice.length),
+                    agency: Math.round(slice.reduce((a, b) => a + b.agency, 0) / slice.length)
+                };
+            });
+        }
+
+        // Toggle weekly view
+        function toggleWeeklyView(enabled) {
+            isWeeklyView = enabled;
+            updateDateRange();
+        }
+
+        // Toggle moving average
+        function toggleMovingAverage(window) {
+            movingAverageWindow = window;
+            updateDateRange(); // Recompute filteredData with MA applied
+        }
+
+        // Initialize dropdowns
+        function initDateSelectors() {
+            const startSelect = document.getElementById('startMonth');
+            const endSelect = document.getElementById('endMonth');
+
+            allMonthlyData.forEach((m, i) => {
+                startSelect.innerHTML += `<option value="${i}">${m.label}</option>`;
+                endSelect.innerHTML += `<option value="${i}">${m.label}</option>`;
+            });
+
+            // Default to last 3 months
+            setPreset('3m');
+        }
+
+        function setPreset(preset) {
+            const total = allMonthlyData.length;
+            let start, end;
+
+            switch(preset) {
+                case '3m':
+                    start = Math.max(0, total - 3);
+                    end = total - 1;
+                    break;
+                case '6m':
+                    start = Math.max(0, total - 6);
+                    end = total - 1;
+                    break;
+                case '1y':
+                    start = Math.max(0, total - 12);
+                    end = total - 1;
+                    break;
+                case 'all':
+                default:
+                    start = 0;
+                    end = total - 1;
+            }
+
+            document.getElementById('startMonth').value = start;
+            document.getElementById('endMonth').value = end;
+
+            // Update active preset button
+            document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelector(`.preset-btn[onclick="setPreset('${preset}')"]`)?.classList.add('active');
+
+            updateDateRange();
+        }
+
+        function updateDateRange() {
+            startIdx = parseInt(document.getElementById('startMonth').value);
+            endIdx = parseInt(document.getElementById('endMonth').value);
+
+            if (startIdx > endIdx) {
+                [startIdx, endIdx] = [endIdx, startIdx];
+                document.getElementById('startMonth').value = startIdx;
+                document.getElementById('endMonth').value = endIdx;
+            }
+
+            const startMonth = allMonthlyData[startIdx].month;
+            const endMonth = allMonthlyData[endIdx].month;
+
+            if (isWeeklyView) {
+                // Filter weekly data to match month range
+                filteredData = allWeeklyData.filter(w => {
+                    const wMonth = weekToMonth(w.week);
+                    return wMonth >= startMonth && wMonth <= endMonth;
+                });
+                filteredMonths = filteredData.map(w => w.week);
+            } else {
+                filteredData = allMonthlyData.slice(startIdx, endIdx + 1);
+                filteredMonths = filteredData.map(m => m.month);
+            }
+
+            // Create smoothed version for charts only (raw data stays in filteredData)
+            if (movingAverageWindow > 1) {
+                filteredDataSmoothed = applyMovingAverage(filteredData, movingAverageWindow);
+            } else {
+                filteredDataSmoothed = [...filteredData];
+            }
+
+            // Update display
+            const startLabel = allMonthlyData[startIdx].label;
+            const endLabel = allMonthlyData[endIdx].label;
+            const viewLabel = isWeeklyView ? ' (Weekly)' : '';
+            const maLabel = movingAverageWindow > 1 ? ` [${movingAverageWindow}-period MA on charts]` : '';
+            document.getElementById('dateRangeDisplay').textContent = `${startLabel} - ${endLabel}${viewLabel}${maLabel}`;
+
+            // Update all charts and stats
+            updateDashboard();
+        }
+
+        function updateDashboard() {
+            updateStats();
+            updateMainChart();
+            updateGauge();
+            updateEmotionChart();
+            updateActivityChart();
+            initDramaCharts();
+            updateEventsTimeline();
+            updatePeopleGrid();
+            updateMonthlySummary();
+            updateInsights();
+            updateProjection();
+            updateWordCloudControls();
+            renderCategoryCharts(); // Update category charts when date range changes
+        }
+
+        function updateEventsTimeline() {
+            const startMonth = filteredMonths[0];
+            const endMonth = filteredMonths[filteredMonths.length - 1];
+
+            const filtered = allEvents.filter(e => e.month >= startMonth && e.month <= endMonth);
+
+            const container = document.querySelector('.events-timeline');
+            if (!container) return;
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-secondary); padding: 1rem;">No events in selected range</p>';
+                return;
+            }
+
+            const catClass = { health: 'cat-health', therapy: 'cat-therapy', social: 'cat-social', housing: 'cat-housing', work: 'cat-work', relationship: 'cat-relationship' };
+
+            container.innerHTML = filtered.map(e => `
+                <div class="event-item">
+                    <div class="event-date">${e.date.slice(5)}</div>
+                    <div class="event-content">
+                        <div class="event-title">${e.title}</div>
+                        <span class="event-category ${catClass[e.category] || ''}">${e.category}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updatePeopleGrid() {
+            const startMonth = filteredMonths[0];
+            const endMonth = filteredMonths[filteredMonths.length - 1];
+
+            // Calculate mentions in range for each person
+            const peopleInRange = [];
+            Object.entries(allPeopleData).forEach(([key, person]) => {
+                let totalMentions = 0;
+                Object.entries(person.byMonth).forEach(([month, count]) => {
+                    if (month >= startMonth && month <= endMonth) {
+                        totalMentions += count;
+                    }
+                });
+                if (totalMentions > 0) {
+                    peopleInRange.push({ key, ...person, mentions: totalMentions });
+                }
+            });
+
+            // Sort by mentions
+            peopleInRange.sort((a, b) => b.mentions - a.mentions);
+
+            const grid = document.getElementById('peopleGrid');
+            if (!grid) return;
+
+            if (peopleInRange.length === 0) {
+                grid.innerHTML = '<p style="color: var(--text-secondary); padding: 1rem;">No people mentioned in selected range</p>';
+                return;
+            }
+
+            const getSentimentColor = (s) => s > 0.2 ? '#22c55e' : s < -0.2 ? '#ef4444' : '#9090a0';
+            const getSentimentLabel = (s) => s > 0.2 ? '↑' : s < -0.2 ? '↓' : '–';
+
+            // Show all people (no slice limit)
+            grid.innerHTML = peopleInRange.map(p => `
+                <div class="person-card" onclick="showPersonDetail('${p.key}')">
+                    <div class="person-name">${p.name}</div>
+                    <div class="person-mentions">${p.mentions}</div>
+                    <div class="person-context">${p.context}</div>
+                    <div class="person-sentiment" style="font-size: 0.75rem; margin-top: 0.25rem; color: ${getSentimentColor(p.sentiment || 0)};">
+                        ${getSentimentLabel(p.sentiment || 0)} ${(p.sentiment || 0) >= 0 ? '+' : ''}${(p.sentiment || 0).toFixed(2)}
+                    </div>
+                    <div class="click-hint">Click for details</div>
+                </div>
+            `).join('');
+        }
+
+        function updateMonthlySummary() {
+            const container = document.querySelector('.monthly-summary');
+            if (!container) return;
+
+            container.innerHTML = filteredData.map((m, i) => {
+                const color = m.wellbeing >= 70 ? '#22c55e' : m.wellbeing >= 50 ? '#eab308' : m.wellbeing >= 40 ? '#f97316' : '#ef4444';
+                const summary = getMonthSummary(m);
+                return `
+                <div class="month-card" style="border-color: ${color}; cursor: pointer;" onclick="showMonthDetail('${m.month}')">
+                    <div class="month-name">${m.label}</div>
+                    <div class="month-stats">
+                        <div class="month-stat"><span>Wellbeing</span><span style="color: ${color};">${m.wellbeing}</span></div>
+                        <div class="month-stat"><span>Sentiment</span><span>${m.sentiment >= 0 ? '+' : ''}${m.sentiment.toFixed(2)}</span></div>
+                        <div class="month-stat"><span>Messages</span><span>${m.messages}</span></div>
+                    </div>
+                    <div class="month-summary-text" style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--text-secondary); line-height: 1.4;">${summary}</div>
+                    <div style="margin-top: 0.5rem; font-size: 0.7rem; color: var(--accent-blue);">Click for details →</div>
+                </div>
+            `}).join('');
+        }
+
+        function showMonthDetail(monthKey) {
+            const monthData = allMonthlyData.find(m => m.month === monthKey);
+            const detailed = detailedMonthSummaries[monthKey];
+
+            if (!monthData) return;
+
+            const title = detailed ? detailed.title : monthData.label;
+            const narrative = detailed ? detailed.narrative : getMonthSummary(monthData);
+            const highlights = detailed ? detailed.highlights : [];
+            const challenges = detailed ? detailed.challenges : [];
+            const topics = detailed ? detailed.topics : [];
+
+            // Get events for this month
+            const monthEvents = allEvents.filter(e => e.month === monthKey);
+
+            // Get people mentioned this month
+            const peopleMentioned = [];
+            Object.entries(allPeopleData).forEach(([key, person]) => {
+                if (person.byMonth[monthKey]) {
+                    peopleMentioned.push({ name: person.name, context: person.context, mentions: person.byMonth[monthKey] });
+                }
+            });
+            peopleMentioned.sort((a, b) => b.mentions - a.mentions);
+
+            const getColor = (w) => w >= 70 ? '#22c55e' : w >= 50 ? '#eab308' : w >= 40 ? '#f97316' : '#ef4444';
+            const wellbeingColor = getColor(monthData.wellbeing);
+
+            const body = `
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
+                    <div style="text-align: center; padding: 0.75rem; background: var(--bg-dark); border-radius: 8px;">
+                        <div style="font-size: 1.5rem; font-weight: 700; color: ${wellbeingColor};">${monthData.wellbeing}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary);">Wellbeing</div>
+                    </div>
+                    <div style="text-align: center; padding: 0.75rem; background: var(--bg-dark); border-radius: 8px;">
+                        <div style="font-size: 1.5rem; font-weight: 700; color: ${monthData.sentiment >= 0 ? '#22c55e' : '#ef4444'};">${monthData.sentiment >= 0 ? '+' : ''}${monthData.sentiment.toFixed(2)}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary);">Sentiment</div>
+                    </div>
+                    <div style="text-align: center; padding: 0.75rem; background: var(--bg-dark); border-radius: 8px;">
+                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--accent-blue);">${monthData.agency}%</div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary);">Agency</div>
+                    </div>
+                    <div style="text-align: center; padding: 0.75rem; background: var(--bg-dark); border-radius: 8px;">
+                        <div style="font-size: 1.5rem; font-weight: 700;">${monthData.messages}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary);">Messages</div>
+                    </div>
+                </div>
+
+                <h4>Summary</h4>
+                <p style="margin-bottom: 1rem;">${narrative}</p>
+
+                ${topics.length > 0 ? `
+                <h4 style="color: var(--accent-purple);">📋 Topics Discussed</h4>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem;">
+                    ${topics.map(t => `<span style="padding: 0.25rem 0.6rem; background: rgba(168, 85, 247, 0.2); border: 1px solid var(--accent-purple); border-radius: 12px; font-size: 0.75rem;">${t}</span>`).join('')}
+                </div>
+                ` : ''}
+
+                ${highlights.length > 0 ? `
+                <h4 style="color: var(--accent-green);">✓ Highlights</h4>
+                <ul style="margin-bottom: 1rem;">
+                    ${highlights.map(h => `<li>${h}</li>`).join('')}
+                </ul>
+                ` : ''}
+
+                ${challenges.length > 0 ? `
+                <h4 style="color: var(--accent-orange);">⚠ Challenges</h4>
+                <ul style="margin-bottom: 1rem;">
+                    ${challenges.map(c => `<li>${c}</li>`).join('')}
+                </ul>
+                ` : ''}
+
+                ${monthEvents.length > 0 ? `
+                <h4>Key Events</h4>
+                <div style="margin-bottom: 1rem;">
+                    ${monthEvents.map(e => `
+                        <div style="display: flex; gap: 0.5rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);">
+                            <span style="color: var(--text-secondary); font-size: 0.8rem; width: 50px;">${e.date.slice(5)}</span>
+                            <span style="font-size: 0.85rem;">${e.title}</span>
+                        </div>
+                    `).join('')}
+                </div>
+                ` : ''}
+
+                ${peopleMentioned.length > 0 ? `
+                <h4>People Mentioned</h4>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                    ${peopleMentioned.map(p => `
+                        <span style="padding: 0.3rem 0.6rem; background: var(--bg-dark); border-radius: 20px; font-size: 0.8rem;">
+                            ${p.name} <span style="color: var(--accent-blue);">(${p.mentions})</span>
+                        </span>
+                    `).join('')}
+                </div>
+                ` : ''}
+
+                <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color); font-size: 0.75rem; color: var(--text-secondary);">
+                    Late night messages: ${monthData.lateNight}% | Conversations: ${monthData.convos}
+                </div>
+            `;
+
+            document.getElementById('modalTitle').textContent = title;
+            document.getElementById('modalBody').innerHTML = body;
+            document.getElementById('infoModal').classList.add('active');
+        }
+
+        // Detailed month summaries for modal view - with concrete conversation topics
+        const detailedMonthSummaries = {};
+
+        const monthSummaries = {};
+
+        function getMonthSummary(m) {
+            // Check for specific summary first
+            if (monthSummaries[m.month]) {
+                return monthSummaries[m.month];
+            }
+
+            // Fallback to generic summary based on metrics
+            const wellbeing = m.wellbeing;
+
+            if (wellbeing >= 80) return "Thriving period. High agency and positive outlook. Strong emotional resilience.";
+            if (wellbeing >= 70) return "Good recovery momentum. Positive sentiment with growing sense of control.";
+            if (wellbeing >= 60) return "Stable period with improving trends. Processing challenges constructively.";
+            if (wellbeing >= 50) return "Mixed emotional state. Working through difficulties with moderate agency.";
+            if (wellbeing >= 40) return "Challenging period. Struggling with negative patterns but maintaining effort.";
+            if (wellbeing >= 30) return "Difficult time. Low sentiment and reduced sense of control. Crisis mode.";
+            return "Crisis period. Very low wellbeing requiring significant support and intervention.";
+        }
+
+        // Generate insights based on recent trends
+        function updateInsights() {
+            const container = document.getElementById('insightsContainer');
+            if (!container || allMonthlyData.length === 0) return;
+
+            // Get time-based data slices from full dataset
+            const now = allMonthlyData.length - 1;
+            const getSlice = (months) => {
+                const start = Math.max(0, allMonthlyData.length - months);
+                return allMonthlyData.slice(start);
+            };
+
+            const last1m = getSlice(1);
+            const last3m = getSlice(3);
+            const last6m = getSlice(6);
+            const last12m = getSlice(12);
+            const all = allMonthlyData;
+
+            // Calculate averages for each period
+            const avg = (arr, key) => arr.length ? arr.reduce((s, m) => s + m[key], 0) / arr.length : 0;
+            const trend = (arr, key) => {
+                if (arr.length < 2) return 0;
+                return arr[arr.length - 1][key] - arr[0][key];
+            };
+
+            // Current month stats
+            const current = allMonthlyData[now];
+            const prev = allMonthlyData[Math.max(0, now - 1)];
+
+            // Key metrics
+            const metrics = {
+                wellbeing: { current: current.wellbeing, trend3m: trend(last3m, 'wellbeing'), trend6m: trend(last6m, 'wellbeing'), avg12m: avg(last12m, 'wellbeing') },
+                sentiment: { current: current.sentiment, trend3m: trend(last3m, 'sentiment'), trend6m: trend(last6m, 'sentiment'), avg12m: avg(last12m, 'sentiment') },
+                agency: { current: current.agency, trend3m: trend(last3m, 'agency'), trend6m: trend(last6m, 'agency'), avg12m: avg(last12m, 'agency') },
+                messages: { current: current.messages, avg3m: avg(last3m, 'messages'), avg12m: avg(last12m, 'messages') }
+            };
+
+            // Analyze patterns for insights
+            const focusItems = [];
+            const reduceItems = [];
+            const actionItems = [];
+
+            // Wellbeing analysis
+            if (metrics.wellbeing.current >= 70 && metrics.wellbeing.trend3m > 10) {
+                focusItems.push({ text: '<strong>Maintain momentum</strong> - your wellbeing has jumped ' + Math.round(metrics.wellbeing.trend3m) + ' points in 3 months', timeframe: '3m' });
+            } else if (metrics.wellbeing.current < 50) {
+                focusItems.push({ text: '<strong>Prioritize self-care</strong> - wellbeing at ' + metrics.wellbeing.current + ' needs attention', timeframe: 'current' });
+            }
+
+            // Sentiment patterns
+            if (metrics.sentiment.current > 0.5) {
+                focusItems.push({ text: '<strong>Positive outlook</strong> - sentiment at +' + metrics.sentiment.current.toFixed(2) + ' shows healthy emotional processing', timeframe: 'current' });
+            } else if (metrics.sentiment.current < 0 && metrics.sentiment.trend3m < -0.3) {
+                focusItems.push({ text: '<strong>Address emotional challenges</strong> - declining sentiment needs support', timeframe: '3m', trend: 'negative' });
+            }
+
+            // Agency analysis
+            if (metrics.agency.current >= 80) {
+                focusItems.push({ text: '<strong>Strong agency</strong> - "I can/will" language at ' + metrics.agency.current + '% indicates empowerment', timeframe: 'current' });
+            } else if (metrics.agency.current < 60 && metrics.agency.trend6m < -10) {
+                reduceItems.push({ text: '<strong>Victim language patterns</strong> - agency dropped ' + Math.abs(Math.round(metrics.agency.trend6m)) + '% over 6 months', timeframe: '6m' });
+            }
+
+            // People patterns - analyze who's being discussed
+            const recentPeople = {};
+            Object.entries(allPeopleData).forEach(([key, person]) => {
+                const recent = Object.entries(person.byMonth)
+                    .filter(([m]) => m >= allMonthlyData[Math.max(0, now - 2)]?.month)
+                    .reduce((s, [, c]) => s + c, 0);
+                if (recent > 5) {
+                    recentPeople[person.name] = { mentions: recent, sentiment: person.sentiment };
+                }
+            });
+
+            const topPeople = Object.entries(recentPeople).sort((a, b) => b[1].mentions - a[1].mentions).slice(0, 3);
+            if (topPeople.length > 0) {
+                const negativePeople = topPeople.filter(([, d]) => d.sentiment < -0.1);
+                if (negativePeople.length > 0) {
+                    reduceItems.push({ text: '<strong>Negative relationship dynamics</strong> - conversations about ' + negativePeople.map(p => p[0]).join(', ') + ' tend negative', timeframe: '3m' });
+                }
+                const positivePeople = topPeople.filter(([, d]) => d.sentiment > 0.2);
+                if (positivePeople.length > 0) {
+                    focusItems.push({ text: '<strong>Nurturing connections</strong> - ' + positivePeople.map(p => p[0]).join(', ') + ' bring positive energy', timeframe: '3m' });
+                }
+            }
+
+            // Activity patterns
+            if (metrics.messages.current > metrics.messages.avg12m * 1.5) {
+                reduceItems.push({ text: '<strong>High processing load</strong> - ' + current.messages + ' messages vs ' + Math.round(metrics.messages.avg12m) + ' avg suggests intense period', timeframe: '12m avg' });
+            } else if (metrics.messages.current < metrics.messages.avg12m * 0.5 && metrics.wellbeing.current < 60) {
+                focusItems.push({ text: '<strong>Engage more with processing</strong> - lower activity may indicate avoidance', timeframe: '12m avg' });
+            }
+
+            // Drama triangle patterns
+            const currentDrama = dramaTriangleData[current.month];
+            if (currentDrama) {
+                if (currentDrama.victim > 5) {
+                    reduceItems.push({ text: '<strong>Victim mindset patterns</strong> - "why me/stuck/trapped" language at ' + currentDrama.victim.toFixed(1) + '%', timeframe: 'current' });
+                }
+                if (currentDrama.empowered > 30) {
+                    focusItems.push({ text: '<strong>Empowered language</strong> - "I choose/I will" at ' + currentDrama.empowered.toFixed(1) + '% shows growth mindset', timeframe: 'current' });
+                }
+            }
+
+            // Generate action items based on patterns
+            if (metrics.wellbeing.trend3m > 15) {
+                actionItems.push({ text: '<strong>Document what\'s working</strong> - significant improvement suggests effective strategies worth noting' });
+            }
+
+            if (metrics.sentiment.current < 0.3 && metrics.agency.current > 70) {
+                actionItems.push({ text: '<strong>Balance doing with feeling</strong> - high agency but moderate sentiment suggests action without emotional processing' });
+            }
+
+            // Check for recovery patterns
+            if (metrics.wellbeing.current > 70 && avg(last6m.slice(0, 3), 'wellbeing') < 50) {
+                actionItems.push({ text: '<strong>Consolidate recovery</strong> - you\'ve come from ' + Math.round(avg(last6m.slice(0, 3), 'wellbeing')) + ' to ' + metrics.wellbeing.current + ', focus on stability' });
+            }
+
+            // Add therapy-related insights
+            const therapyMentions = allPeopleData.therapist?.byMonth[current.month] || 0;
+            if (therapyMentions > 20) {
+                actionItems.push({ text: '<strong>Evaluate therapy relationship</strong> - high therapy discussion (' + therapyMentions + ' mentions) may indicate productive work or concerns' });
+            }
+
+            // Social connection insights
+            const socialPeople = ['sarah', 'dennis', 'dominik', 'liliia', 'julie'].filter(p => allPeopleData[p]?.byMonth[current.month] > 0);
+            if (socialPeople.length >= 2) {
+                focusItems.push({ text: '<strong>Active social connections</strong> - engaging with ' + socialPeople.length + ' friends this month', timeframe: 'current' });
+            } else if (socialPeople.length === 0 && metrics.wellbeing.current < 60) {
+                actionItems.push({ text: '<strong>Reach out to friends</strong> - no friend mentions this month, connection may help' });
+            }
+
+            // Family dynamics
+            const familyMentions = ['mother', 'father', 'brother', 'sister'].reduce((s, p) => s + (allPeopleData[p]?.byMonth[current.month] || 0), 0);
+            if (familyMentions > 15) {
+                const familySentiment = ['mother', 'father', 'brother', 'sister']
+                    .filter(p => allPeopleData[p])
+                    .reduce((s, p) => s + allPeopleData[p].sentiment, 0) / 4;
+                if (familySentiment < 0) {
+                    reduceItems.push({ text: '<strong>Family stress</strong> - ' + familyMentions + ' mentions with negative sentiment pattern', timeframe: 'current' });
+                }
+            }
+
+            // Default items if lists are empty
+            if (focusItems.length === 0) {
+                focusItems.push({ text: '<strong>Continue current patterns</strong> - no major concerns detected in recent data', timeframe: 'overall' });
+            }
+            if (reduceItems.length === 0) {
+                reduceItems.push({ text: '<strong>No red flags</strong> - patterns look healthy, maintain awareness', timeframe: 'overall' });
+            }
+            if (actionItems.length === 0) {
+                actionItems.push({ text: '<strong>Keep journaling</strong> - regular reflection supports wellbeing' });
+                actionItems.push({ text: '<strong>Review monthly trends</strong> - click month cards above for detailed insights' });
+            }
+
+            // Render the insights
+            const renderItems = (items, iconChar) => items.slice(0, 4).map(item => `
+                <div class="insight-item">
+                    <div class="insight-icon">${iconChar}</div>
+                    <div>
+                        <div class="insight-text">${item.text}</div>
+                        ${item.timeframe ? `<span class="insight-timeframe">${item.timeframe}</span>` : ''}
+                        ${item.trend ? `<div class="insight-trend ${item.trend}">${item.trend === 'positive' ? '↑' : '↓'} trending</div>` : ''}
+                    </div>
+                </div>
+            `).join('');
+
+            container.innerHTML = `
+                <div class="insight-column focus">
+                    <h4>✓ Focus On</h4>
+                    ${renderItems(focusItems, '+')}
+                </div>
+                <div class="insight-column reduce">
+                    <h4>⚠ Be Mindful Of</h4>
+                    ${renderItems(reduceItems, '!')}
+                </div>
+                <div class="insight-column actions">
+                    <h4>→ Next Steps</h4>
+                    ${renderItems(actionItems, '→')}
+                </div>
+            `;
+        }
+
+        function updateProjection() {
+            const grid = document.getElementById('forecastGrid');
+            const summary = document.getElementById('projectionSummary');
+            const subtitle = document.getElementById('projectionSubtitle');
+
+            if (!grid || filteredData.length === 0) return;
+
+            // Show actual data from selected range
+            const getColor = (w) => w >= 70 ? '#22c55e' : w >= 50 ? '#eab308' : w >= 40 ? '#f97316' : '#ef4444';
+
+            grid.innerHTML = filteredData.map((m, i) => `
+                <div class="forecast-month ${i === filteredData.length - 1 ? 'current' : ''}">
+                    <div class="forecast-label">${m.label}</div>
+                    <div class="forecast-score" style="color: ${getColor(m.wellbeing)};">${m.wellbeing}</div>
+                </div>
+            `).join('');
+
+            // Calculate change
+            const first = filteredData[0];
+            const last = filteredData[filteredData.length - 1];
+            const change = last.wellbeing - first.wellbeing;
+            const changeColor = change >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+
+            subtitle.textContent = `Showing ${filteredData.length} months of data`;
+
+            summary.innerHTML = `
+                <div style="font-size: 1.2rem; margin-bottom: 0.5rem;">Change Over Period</div>
+                <div style="font-size: 4rem; font-weight: 700; color: ${changeColor};">${change >= 0 ? '+' : ''}${change}</div>
+                <div style="color: var(--text-secondary);">From ${first.wellbeing} (${first.label}) to ${last.wellbeing} (${last.label})</div>
+            `;
+        }
+
+        function updateStats() {
+            const totalMsgs = filteredData.reduce((a, m) => a + m.messages, 0);
+            const totalConvos = filteredData.reduce((a, m) => a + m.convos, 0);
+            const months = filteredData.length;
+            const avgSentiment = filteredData.reduce((a, m) => a + m.sentiment, 0) / months;
+            const currentWellbeing = filteredData[filteredData.length - 1].wellbeing;
+            const startWellbeing = filteredData[0].wellbeing;
+            const wellbeingChange = currentWellbeing - startWellbeing;
+            const pointsPerMonth = months > 1 ? (wellbeingChange / (months - 1)).toFixed(1) : 0;
+
+            // Find lowest sentiment point
+            const lowestSent = filteredData.reduce((min, m) => m.sentiment < min.sentiment ? m : min, filteredData[0]);
+            const sentChange = (avgSentiment - lowestSent.sentiment).toFixed(2);
+
+            document.querySelector('.stat-card:nth-child(1) .stat-value').textContent = totalConvos.toLocaleString();
+            document.querySelector('.stat-card:nth-child(1) .stat-trend').textContent = `~${(totalConvos / months).toFixed(1)} per month`;
+
+            document.querySelector('.stat-card:nth-child(2) .stat-value').textContent = totalMsgs.toLocaleString();
+            document.querySelector('.stat-card:nth-child(2) .stat-trend').textContent = `~${Math.round(totalMsgs / totalConvos)} per conversation`;
+
+            const sentEl = document.querySelector('.stat-card:nth-child(3) .stat-value');
+            sentEl.textContent = (avgSentiment >= 0 ? '+' : '') + avgSentiment.toFixed(2);
+            sentEl.className = 'stat-value ' + (avgSentiment >= 0 ? 'positive' : 'negative');
+            document.querySelector('.stat-card:nth-child(3) .stat-trend').textContent =
+                `${sentChange >= 0 ? '+' : ''}${sentChange} from ${lowestSent.label} low`;
+
+            const wellEl = document.querySelector('.stat-card:nth-child(4) .stat-value');
+            wellEl.textContent = currentWellbeing;
+            wellEl.className = 'stat-value ' + (currentWellbeing >= 60 ? 'positive' : currentWellbeing >= 40 ? 'neutral' : 'negative');
+            document.querySelector('.stat-card:nth-child(4) .stat-trend').textContent =
+                (wellbeingChange >= 0 ? '+' : '') + wellbeingChange + ` from ${filteredData[0].label}`;
+
+            const trendEl = document.querySelector('.stat-card:nth-child(5) .stat-value');
+            const trendDirection = wellbeingChange > 5 ? 'Improving' : wellbeingChange < -5 ? 'Declining' : 'Stable';
+            trendEl.textContent = trendDirection;
+            trendEl.className = 'stat-value ' + (wellbeingChange > 0 ? 'positive' : wellbeingChange < 0 ? 'negative' : 'neutral');
+            document.querySelector('.stat-card:nth-child(5) .stat-trend').textContent =
+                `${pointsPerMonth >= 0 ? '+' : ''}${pointsPerMonth} points/month`;
+
+            // Update footer
+            const startLabel = filteredData[0].label;
+            const endLabel = filteredData[filteredData.length - 1].label;
+            document.getElementById('footerStats').textContent =
+                `Generated from ${totalConvos} conversations | ${totalMsgs.toLocaleString()} messages | ${startLabel} - ${endLabel}`;
+        }
+
+        // Chart instances (will be created on load)
+        let mainChart, emotionChart, activityChart;
+
+        function updateMainChart() {
+            // Use smoothed data for trend charts
+            const labels = filteredDataSmoothed.map(m => m.label);
+            const sentiment = filteredDataSmoothed.map(m => m.sentiment);
+            const wellbeing = filteredDataSmoothed.map(m => m.wellbeing);
+
+            if (mainChart) {
+                mainChart.data.labels = labels;
+
+                // Apply change rate if toggle is on
+                if (showingChangeRate) {
+                    const calcChangeRate = (arr) => arr.map((val, i) => i === 0 ? 0 : parseFloat((val - arr[i-1]).toFixed(2)));
+                    mainChart.data.datasets[0].data = calcChangeRate(sentiment);
+                    mainChart.data.datasets[1].data = calcChangeRate(wellbeing);
+                    mainChart.data.datasets[0].label = 'Sentiment Δ';
+                    mainChart.data.datasets[1].label = 'Wellbeing Δ';
+                    mainChart.options.scales.y.min = undefined;
+                    mainChart.options.scales.y.max = undefined;
+                    mainChart.options.scales.y1.min = undefined;
+                    mainChart.options.scales.y1.max = undefined;
+                } else {
+                    mainChart.data.datasets[0].data = sentiment;
+                    mainChart.data.datasets[1].data = wellbeing;
+                    mainChart.data.datasets[0].label = 'Sentiment';
+                    mainChart.data.datasets[1].label = 'Wellbeing';
+                    mainChart.options.scales.y.min = -1;
+                    mainChart.options.scales.y.max = 1;
+                    mainChart.options.scales.y1.min = 0;
+                    mainChart.options.scales.y1.max = 100;
+                }
+
+                // Update event annotations if checkbox is checked
+                const showEvents = document.getElementById('showEventsToggle')?.checked;
+                mainChart.options.plugins.annotation.annotations = generateEventAnnotations(showEvents);
+
+                mainChart.update();
+            }
+        }
+
+        function updateGauge() {
+            const currentWellbeing = filteredData[filteredData.length - 1].wellbeing;
+            const startWellbeing = filteredData[0].wellbeing;
+            const change = currentWellbeing - startWellbeing;
+
+            const circumference = 2 * Math.PI * 85;
+            const offset = circumference - (currentWellbeing / 100) * circumference;
+
+            const gaugeFill = document.getElementById('gaugeFill');
+            const gaugeValue = document.getElementById('gaugeValue');
+
+            gaugeFill.style.strokeDasharray = circumference;
+            gaugeFill.style.strokeDashoffset = offset;
+            gaugeValue.textContent = currentWellbeing;
+
+            // Color based on score
+            let color = currentWellbeing >= 60 ? '#22c55e' : currentWellbeing >= 40 ? '#f97316' : '#ef4444';
+            gaugeFill.style.stroke = color;
+            gaugeValue.style.color = color;
+
+            // Update change text
+            const changeEl = document.querySelector('.wellbeing-gauge > div:last-child');
+            changeEl.innerHTML = `<span style="color: ${change >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'};">${change >= 0 ? '+' : ''}${change} points</span>
+                <span style="color: var(--text-secondary);"> over period</span>`;
+        }
+
+        function updateEmotionChart() {
+            // Use smoothed data for trend chart
+            const labels = filteredDataSmoothed.map(m => m.label);
+            const positive = filteredDataSmoothed.map(m => Math.max(0, Math.round(m.sentiment * 100 + 50)));
+            const negative = filteredDataSmoothed.map(m => Math.max(0, Math.round(-m.sentiment * 100 + 50)));
+            const neutral = filteredDataSmoothed.map(m => Math.round(100 - Math.abs(m.sentiment * 50)));
+
+            if (emotionChart) {
+                emotionChart.data.labels = labels;
+                emotionChart.data.datasets[0].data = positive;
+                emotionChart.data.datasets[1].data = negative;
+                emotionChart.data.datasets[2].data = neutral;
+                emotionChart.update();
+            }
+        }
+
+        function updateActivityChart() {
+            // Activity uses raw data (message counts shouldn't be smoothed)
+            const labels = filteredData.map(m => m.label);
+            const messages = filteredData.map(m => m.messages);
+
+            if (activityChart) {
+                activityChart.data.labels = labels;
+                activityChart.data.datasets[0].data = messages;
+                activityChart.update();
+            }
+        }
+
+        // Info content for each card
+        const infoContent = {
+            conversations: {
+                title: 'Total Conversations',
+                body: `
+                    <h4>What it measures</h4>
+                    <p>The total number of distinct conversation sessions with Claude over the 90-day period.</p>
+
+                    <h4>How it's calculated</h4>
+                    <p>Each conversation in the exported <code>conversations.json</code> file counts as one. A new conversation starts when you begin a fresh chat session.</p>
+
+                    <div class="formula-box">Count of conversation objects in JSON</div>
+
+                    <h4>What it tells you</h4>
+                    <p>Higher conversation counts indicate more frequent engagement. The ~1.8/day average suggests regular daily usage with some days having multiple sessions.</p>
+                `
+            },
+            messages: {
+                title: 'Total Messages',
+                body: `
+                    <h4>What it measures</h4>
+                    <p>The total number of messages you sent across all conversations (your messages only, not Claude's responses).</p>
+
+                    <h4>How it's calculated</h4>
+                    <p>Filters messages where <code>role = "human"</code> and counts them across all conversations.</p>
+
+                    <div class="formula-box">SUM(messages where role="human")</div>
+
+                    <h4>What it tells you</h4>
+                    <p>At ~19 messages per conversation, your sessions are substantive discussions rather than quick queries.</p>
+                `
+            },
+            sentiment: {
+                title: 'Average Sentiment',
+                body: `
+                    <h4>What it measures</h4>
+                    <p>The overall emotional tone of your messages, ranging from -1 (very negative) to +1 (very positive).</p>
+
+                    <h4>How it's calculated</h4>
+                    <p>Uses keyword-based sentiment analysis:</p>
+                    <ul>
+                        <li><strong>Positive words:</strong> good, better, happy, joy, love, great, safe, healing (+1 each)</li>
+                        <li><strong>Negative words:</strong> alone, scared, pain, angry, sad, afraid, stuck, fucking (-1 each)</li>
+                        <li><strong>Neutral:</strong> all other words (0)</li>
+                    </ul>
+
+                    <div class="formula-box">Sentiment = (positive_count - negative_count) / total_emotional_words</div>
+
+                    <h4>Interpretation</h4>
+                    <ul>
+                        <li><strong>-1.0 to -0.3:</strong> Predominantly negative/distressed</li>
+                        <li><strong>-0.3 to +0.3:</strong> Mixed/neutral emotional state</li>
+                        <li><strong>+0.3 to +1.0:</strong> Predominantly positive/hopeful</li>
+                    </ul>
+                `
+            },
+            wellbeing: {
+                title: 'Wellbeing Score',
+                body: `
+                    <h4>What it measures</h4>
+                    <p>A composite score (0-100) representing overall psychological wellbeing based on multiple conversation signals. Designed to be <em>sensitive</em> to real psychological shifts.</p>
+
+                    <h4>How it's calculated</h4>
+                    <p>Weighted combination of 5 factors, heavily emphasizing sentiment and agency:</p>
+                    <ul>
+                        <li><strong>Sentiment (45%):</strong> Emotional tone - hopeful vs despair language</li>
+                        <li><strong>Agency (15%):</strong> "I can/will/want" vs "I can't/have to/stuck"</li>
+                        <li><strong>Sleep patterns (15%):</strong> Inverse of late-night usage %</li>
+                        <li><strong>Social connection (10%):</strong> Friends, social events, togetherness</li>
+                        <li><strong>Emotional balance (15%):</strong> Positive/negative ratio</li>
+                    </ul>
+
+                    <div class="formula-box">Wellbeing = sentiment×45 + agency×15 + sleep×15 + social×10 + balance×15</div>
+
+                    <h4>Why the new formula?</h4>
+                    <p>Previous version was too flat (53→67). This version captures the <em>dramatic shift</em> from low agency period (agency: 33%) to liberation in March (agency: 80%+).</p>
+
+                    <h4>Score ranges</h4>
+                    <ul>
+                        <li><strong>0-40:</strong> Crisis/high distress (red) - Dec/Jan</li>
+                        <li><strong>40-60:</strong> Struggling/recovering (orange)</li>
+                        <li><strong>60-80:</strong> Stable/improving (green) - Mar</li>
+                        <li><strong>80-100:</strong> Thriving (bright green)</li>
+                    </ul>
+                `
+            },
+            trend: {
+                title: 'Trend Direction',
+                body: `
+                    <h4>What it measures</h4>
+                    <p>The direction and rate of change in your wellbeing score over time.</p>
+
+                    <h4>How it's calculated</h4>
+                    <p>Linear regression on weekly wellbeing scores to determine the slope of change.</p>
+
+                    <div class="formula-box">Trend = (current_month_wellbeing - first_month_wellbeing) / months_elapsed</div>
+
+                    <h4>Current calculation</h4>
+                    <ul>
+                        <li>December wellbeing: 32 (crisis low)</li>
+                        <li>March wellbeing: 77</li>
+                        <li>Change: <strong>+45 points</strong> over ~3 months</li>
+                        <li>Rate: ~+15 points/month</li>
+                    </ul>
+
+                    <h4>Interpretation</h4>
+                    <p><strong>Improving</strong> = positive slope over 3+ consecutive weeks. The late February inflection point (therapy termination) is clearly visible in the data.</p>
+                `
+            },
+            timeline: {
+                title: 'Sentiment & Wellbeing Timeline',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>Three overlaid metrics tracked weekly across the 90-day period:</p>
+
+                    <h4>Purple line: Sentiment</h4>
+                    <p>Weekly sentiment score (-1 to +1). Ratio of hopeful vs despair language. W01 hit -0.92 (almost pure despair), March reached +1.0 (pure hope).</p>
+
+                    <h4>Blue line: Wellbeing</h4>
+                    <p>Weekly wellbeing score (0-100). Composite heavily weighted toward sentiment (45%) and agency (15%).</p>
+
+                    <h4>Green dashed line: Agency %</h4>
+                    <p>Ratio of empowered language ("I can", "I will", "I want") vs victim language ("I can't", "stuck", "trapped"). W01 was 33% (low agency pattern), March is 80%+ (agency).</p>
+
+                    <h4>How to read it</h4>
+                    <ul>
+                        <li>W01 shows the crisis low: sentiment -0.92, wellbeing 23, agency 33%</li>
+                        <li>The dramatic upturn begins at W09 (late Feb) - therapy termination</li>
+                        <li>March shows sustained positive sentiment (0.64-1.0) and high agency</li>
+                    </ul>
+                `
+            },
+            gauge: {
+                title: 'Wellbeing Gauge',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>Visual representation of your current wellbeing score with color-coding.</p>
+
+                    <h4>Color scale</h4>
+                    <ul>
+                        <li><strong style="color: #ef4444;">Red (0-40):</strong> Crisis/distress</li>
+                        <li><strong style="color: #f97316;">Orange (40-60):</strong> Struggling</li>
+                        <li><strong style="color: #22c55e;">Green (60-100):</strong> Stable to thriving</li>
+                    </ul>
+
+                    <h4>The "+14 points" indicator</h4>
+                    <p>Shows improvement from your December baseline (53) to current (67). This delta is more meaningful than the absolute number.</p>
+                `
+            },
+            emotions: {
+                title: 'Emotional Balance',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>Monthly breakdown of emotional expression categories across all your messages.</p>
+
+                    <h4>Categories</h4>
+                    <ul>
+                        <li><strong style="color: #22c55e;">Positive:</strong> Words like good, better, happy, joy, love, great, safe, hope, healing</li>
+                        <li><strong style="color: #ef4444;">Negative:</strong> Words like alone, scared, pain, angry, sad, afraid, stuck, anxious, worried</li>
+                        <li><strong style="color: #4a9eff;">Neutral:</strong> Emotional words that are neither clearly positive nor negative (thinking, feeling, processing)</li>
+                    </ul>
+
+                    <h4>Key insight</h4>
+                    <p>Notice how March shows a dramatic drop in negative words (183→35) while maintaining positive expression. This isn't suppression - your neutral category increased, suggesting more cognitive/exploratory conversations rather than emotional processing.</p>
+                `
+            },
+            wordcloud: {
+                title: 'Word Cloud',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>Most frequently used words in your messages, sized by frequency.</p>
+
+                    <h4>Color coding</h4>
+                    <ul>
+                        <li><strong style="color: #22c55e;">Green:</strong> Positive/growth words (friends, better, healing, Alexander)</li>
+                        <li><strong style="color: #ef4444;">Red:</strong> Distress words (alone, pain, trauma, anxiety)</li>
+                        <li><strong style="color: #4a9eff;">Blue:</strong> Neutral/topic words</li>
+                    </ul>
+
+                    <h4>How it's calculated</h4>
+                    <p>Excludes common stop words (the, a, is, etc.) and counts remaining words across all messages. Top 35 words displayed.</p>
+
+                    <h4>Interpretation</h4>
+                    <p>The prominence of "sleep", "therapy", "friends", and "system" reflects your major conversation themes. Word clouds show what you're talking <em>about</em>, while sentiment shows how you <em>feel</em> about it.</p>
+                `
+            },
+            activity: {
+                title: 'Weekly Activity',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>Number of messages sent per week, color-coded by volume.</p>
+
+                    <h4>Color scale</h4>
+                    <ul>
+                        <li><strong style="color: #22c55e;">Green (150+):</strong> High engagement weeks</li>
+                        <li><strong style="color: #4a9eff;">Blue (100-150):</strong> Normal activity</li>
+                        <li><strong style="color: #f97316;">Orange (50-100):</strong> Lower activity</li>
+                        <li><strong style="color: #ef4444;">Red (&lt;50):</strong> Minimal activity</li>
+                    </ul>
+
+                    <h4>What patterns mean</h4>
+                    <ul>
+                        <li><strong>W08 (21 messages):</strong> Lowest week - often indicates either stability (less need for processing) or avoidance</li>
+                        <li><strong>W10 (198 messages):</strong> Peak activity - correlates with the therapy termination and Alexander Technique start</li>
+                    </ul>
+                `
+            },
+            people: {
+                title: 'People Mentioned',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>People referenced in your conversations, with mention counts and sentiment associations.</p>
+
+                    <h4>How people are detected</h4>
+                    <p>Name extraction using capitalized words in conversational context, filtered for known categories (friends, family, therapists, colleagues).</p>
+
+                    <h4>Sentiment calculation</h4>
+                    <p>Average sentiment of messages where the person is mentioned. A person with -0.28 sentiment means conversations about them tend to be more negatively-toned.</p>
+
+                    <div class="formula-box">Person_sentiment = AVG(sentiment of messages containing name)</div>
+
+                    <h4>Interaction</h4>
+                    <ul>
+                        <li><strong>Hover:</strong> See relationship summary and active months</li>
+                        <li><strong>Click:</strong> View detailed weekly chart of mentions and sentiment</li>
+                        <li><strong>Sentiment badge hover:</strong> Explains the -1 to +1 scale</li>
+                    </ul>
+                `
+            },
+            events: {
+                title: 'Key Events Timeline',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>Significant events extracted from conversation titles and content, categorized by type.</p>
+
+                    <h4>Categories</h4>
+                    <ul>
+                        <li><strong style="color: #ef4444;">Health:</strong> Medical events, appointments, physical symptoms</li>
+                        <li><strong style="color: #a855f7;">Therapy:</strong> Sessions, therapeutic milestones, mental health</li>
+                        <li><strong style="color: #22c55e;">Social:</strong> Friends, parties, social events</li>
+                        <li><strong style="color: #ec4899;">Relationship:</strong> Breakup, romantic milestones, ex contact</li>
+                        <li><strong style="color: #f97316;">Housing:</strong> Flat, moving, landlord interactions</li>
+                        <li><strong style="color: #4a9eff;">Work:</strong> Career, job tasks, professional</li>
+                    </ul>
+
+                    <h4>How events are identified</h4>
+                    <p>Conversation titles and first messages are analyzed for event-like language. Events are deduplicated and sorted chronologically.</p>
+                `
+            },
+            drama: {
+                title: 'Karpman Drama Triangle',
+                body: `
+                    <h4>What it measures</h4>
+                    <p>The Drama Triangle (Stephen Karpman, 1968) identifies three dysfunctional roles people cycle through in conflict: Victim, Persecutor, and Rescuer.</p>
+
+                    <h4>Role Detection</h4>
+                    <ul>
+                        <li><strong style="color: #ef4444;">Victim:</strong> "why me", "it's not fair", "I can't", "helpless", "stuck", "trapped", "abandoned", "betrayed"</li>
+                        <li><strong style="color: #f97316;">Persecutor:</strong> "they should", "their fault", "can't believe they", "stupid", "selfish", "manipulative"</li>
+                        <li><strong style="color: #eab308;">Rescuer:</strong> "I need to help", "fix them", "my responsibility", "they need me", "can't let them"</li>
+                    </ul>
+
+                    <div class="formula-box">Role_score = (phrase_matches / messages_in_month) × 100</div>
+
+                    <h4>Interpretation</h4>
+                    <p>Low scores indicate healthier communication patterns. High victim scores often correlate with crisis periods. Spikes in persecutor language may indicate frustration with boundaries.</p>
+
+                    <h4>Your patterns</h4>
+                    <ul>
+                        <li>Feb 2026 shows victim spike (9.3) - therapy ending processing</li>
+                        <li>Dec 2025-Jan 2026 elevated victim - crisis period</li>
+                        <li>Jun 2025 persecutor spike (7.8) - boundary frustrations</li>
+                    </ul>
+                `
+            },
+            empowered: {
+                title: 'Victim vs Empowered Language',
+                body: `
+                    <h4>What it measures</h4>
+                    <p>Contrasts disempowered (victim) language with empowered/adult language patterns.</p>
+
+                    <h4>Empowered phrases</h4>
+                    <p>"I choose", "I can", "I will", "I want", "I am", "I know", "I realize", "my decision", "my boundary", "moving forward", "taking responsibility"</p>
+
+                    <h4>Why this matters</h4>
+                    <p>The ratio of empowered to victim language is a leading indicator of psychological health. Even during crisis, maintaining empowered language suggests resilience.</p>
+
+                    <div class="formula-box">Empowerment_ratio = empowered_phrases / victim_phrases</div>
+
+                    <h4>Your trends</h4>
+                    <ul>
+                        <li>Jul 2025: Peak empowerment (84.7) with low victim (2.2) = strong agency</li>
+                        <li>Feb 2026: High empowerment (54.8) despite high victim (9.3) = processing but not stuck</li>
+                        <li>Overall empowered language dominates - healthy baseline</li>
+                    </ul>
+                `
+            },
+            category: {
+                title: 'Message Categories',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>Distribution of your conversations across life domains, categorized by an LLM.</p>
+
+                    <h4>Categories</h4>
+                    <ul>
+                        <li><strong style="color: #ef4444;">Relationships:</strong> Dating, friendships, family dynamics, social situations</li>
+                        <li><strong style="color: #3b82f6;">Work:</strong> Career, professional tasks, workplace issues</li>
+                        <li><strong style="color: #a855f7;">Mental Health:</strong> Therapy, emotional processing, self-reflection</li>
+                        <li><strong style="color: #6b7280;">Practical:</strong> Moving, logistics, scheduling, everyday tasks</li>
+                        <li><strong style="color: #f97316;">Creative:</strong> Writing, art, personal projects, hobbies</li>
+                        <li><strong style="color: #22d3ee;">Tech:</strong> Programming, code, technical problems</li>
+                        <li><strong style="color: #22c55e;">Health:</strong> Physical health, exercise, medical issues</li>
+                        <li><strong style="color: #eab308;">Finance:</strong> Money, budgeting, investments</li>
+                        <li><strong style="color: #8b5cf6;">Learning:</strong> Study, courses, skill development</li>
+                    </ul>
+
+                    <h4>How it's generated</h4>
+                    <p>Each message is sent to Claude for categorization. Run <code>node generate_categories.js</code> to regenerate.</p>
+                `
+            },
+            victimLlm: {
+                title: 'Victim vs Empowered (LLM Analysis)',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>Monthly scores of victim vs empowered language patterns, analyzed by Claude LLM for deeper semantic understanding.</p>
+
+                    <h4>Key difference from hardcoded analysis</h4>
+                    <p>The LLM analysis can detect context and nuance that keyword matching misses. For example, "I have to go" in a casual context is different from "I have to comply" in a relationship context.</p>
+
+                    <h4>Scores (0-100)</h4>
+                    <ul>
+                        <li><strong style="color: #22c55e;">Empowered:</strong> Language showing agency, choice, responsibility</li>
+                        <li><strong style="color: #ef4444;">Victim:</strong> Language showing helplessness, external blame, being trapped</li>
+                    </ul>
+
+                    <h4>Interpretation</h4>
+                    <p>High empowered + low victim = strong psychological health. High victim scores in specific months often correlate with crisis periods.</p>
+                `
+            },
+            categoryTime: {
+                title: 'Category Trends Over Time',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>Stacked bar chart showing how message categories change month to month.</p>
+
+                    <h4>Reading the chart</h4>
+                    <ul>
+                        <li>Total bar height = total messages that month</li>
+                        <li>Each color segment = messages in that category</li>
+                        <li>Track shifts in focus over time</li>
+                    </ul>
+
+                    <h4>What to look for</h4>
+                    <ul>
+                        <li>Mental health spikes during crisis periods</li>
+                        <li>Relationship focus during social processing</li>
+                        <li>Work/tech when engaged professionally</li>
+                        <li>Creative during recovery/growth phases</li>
+                    </ul>
+                `
+            },
+            monthly: {
+                title: 'Monthly Summary',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>Month-by-month breakdown with key metrics and dominant themes.</p>
+
+                    <h4>Metrics per month</h4>
+                    <ul>
+                        <li><strong>Wellbeing:</strong> Average score for that month</li>
+                        <li><strong>Sentiment:</strong> Average emotional tone</li>
+                        <li><strong>Convos:</strong> Number of conversation sessions</li>
+                    </ul>
+
+                    <h4>Theme tags</h4>
+                    <p>Automatically extracted from most frequent topic words and conversation patterns in that month.</p>
+
+                    <h4>Color progression</h4>
+                    <p>Border colors show the arc: Red (Dec) → Orange (Jan) → Yellow (Feb) → Green (Mar), matching your wellbeing trajectory.</p>
+                `
+            },
+            insights: {
+                title: 'Insights & Recommendations',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>AI-generated insights based on patterns in your conversation data across multiple timeframes (1, 3, 6, and 12 months).</p>
+
+                    <h4>Three Categories</h4>
+                    <ul>
+                        <li><strong style="color: #22c55e;">Focus On:</strong> Positive patterns to maintain or strengthen - what's working well</li>
+                        <li><strong style="color: #f97316;">Be Mindful Of:</strong> Patterns that may need attention - not necessarily problems, but areas to watch</li>
+                        <li><strong style="color: #4a9eff;">Next Steps:</strong> Concrete actions based on your current situation and recent trends</li>
+                    </ul>
+
+                    <h4>How insights are generated</h4>
+                    <p>The system analyzes:</p>
+                    <ul>
+                        <li><strong>Wellbeing trajectory:</strong> Comparing current score to 3m, 6m, 12m averages</li>
+                        <li><strong>Sentiment trends:</strong> Direction of emotional tone over time</li>
+                        <li><strong>Agency patterns:</strong> "I can/will" vs "I can't/stuck" language ratios</li>
+                        <li><strong>People dynamics:</strong> Who you discuss and associated sentiment</li>
+                        <li><strong>Drama triangle:</strong> Victim/persecutor/rescuer language patterns</li>
+                        <li><strong>Social connections:</strong> Friend and family mention patterns</li>
+                    </ul>
+
+                    <h4>Timeframe badges</h4>
+                    <p>Small badges indicate the time period each insight is based on:</p>
+                    <ul>
+                        <li><code>current</code> - This month only</li>
+                        <li><code>3m</code> - Last 3 months trend</li>
+                        <li><code>6m</code> - Last 6 months trend</li>
+                        <li><code>12m avg</code> - Compared to 12-month average</li>
+                    </ul>
+                `
+            },
+            llminsights: {
+                title: 'LLM Analysis',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>Insights generated by Claude API analyzing actual conversation content across 1,275 conversations (Dec 2022 - Mar 2026).</p>
+
+                    <h4>How this differs from hardcoded insights</h4>
+                    <p>The "Deep Analysis" card below has manually written insights. This LLM Analysis uses AI to:</p>
+                    <ul>
+                        <li><strong>Understand context:</strong> Sarcasm, nuance, mixed emotions</li>
+                        <li><strong>Extract themes:</strong> What conversations are actually about</li>
+                        <li><strong>Identify relationships:</strong> Who you discuss and how you feel about them</li>
+                        <li><strong>Detect significance:</strong> Which events actually mattered</li>
+                    </ul>
+
+                    <h4>How to regenerate</h4>
+                    <div class="formula-box" style="font-family: monospace; font-size: 0.85rem;">
+                        node llm_analysis.js    # Full analysis (~15 min)<br>
+                        node generate_insights.js  # Just insights
+                    </div>
+
+                    <h4>Data source</h4>
+                    <p>Loads from <code>llm_insights.json</code> which contains monthly sentiment, people, events, and overall insights.</p>
+                `
+            },
+            deepanalysis: {
+                title: 'Deep Analysis (Hardcoded)',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>Manually written insights from reading conversation content.</p>
+
+                    <h4>How this differs from LLM insights</h4>
+                    <p>These insights were written during manual analysis. The LLM Analysis card above is generated automatically by running <code>node llm_analysis.js</code>.</p>
+                    <ul>
+                        <li><strong>Reading conversation text:</strong> Actual words, context, and narrative</li>
+                        <li><strong>Cross-referencing timelines:</strong> What happened when wellbeing dropped/recovered</li>
+                        <li><strong>Identifying causal patterns:</strong> Not just correlation, but what drove changes</li>
+                    </ul>
+
+                    <h4>The Therapy Finding</h4>
+                    <p>The most significant finding: <strong>4 years of IFS therapy correlated with decline, not improvement</strong>. This was discovered by:</p>
+                    <ul>
+                        <li>Tracking therapy-related conversation titles over time</li>
+                        <li>Comparing language before/after key events</li>
+                        <li>Reading your own termination email analysis</li>
+                    </ul>
+
+                    <h4>Evidence standard</h4>
+                    <p>The language shift table uses actual word counts from conversations:</p>
+                    <div class="formula-box">
+                    Word_count = regex matches in all human messages for that month
+                    </div>
+
+                    <h4>Methodology</h4>
+                    <p>Analysis performed via Node.js scripts reading conversations.json directly. Key functions:</p>
+                    <ul>
+                        <li><code>analyze_convos.js</code> - Title and content pattern matching</li>
+                        <li><code>process_data.js</code> - Sentiment and agency calculations</li>
+                    </ul>
+                `
+            },
+            projection: {
+                title: 'Wellbeing Projection',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>Projected wellbeing scores through December 2026, based on your current improvement trajectory.</p>
+
+                    <h4>How it's calculated</h4>
+                    <p>Uses your current monthly improvement rate with logarithmic diminishing returns (improvements slow as you approach higher scores).</p>
+
+                    <div class="formula-box">
+Future_score = Current + (rate × months × decay_factor)<br>
+Where decay_factor = 1 - (current_score / 100)
+                    </div>
+
+                    <h4>Assumptions</h4>
+                    <ul>
+                        <li>Current trajectory continues (+7%/month base rate)</li>
+                        <li>Returns diminish as wellbeing increases</li>
+                        <li>No major life disruptions</li>
+                        <li>Continued engagement with beneficial practices (AT, etc.)</li>
+                    </ul>
+
+                    <h4>Confidence</h4>
+                    <p>Projections become less reliable further out. The Dec 2026 estimate of 78 has a reasonable confidence interval of ±10 points.</p>
+                `
+            }
+        };
+
+        function showInfo(key) {
+            const info = infoContent[key];
+            if (!info) return;
+
+            document.getElementById('modalTitle').textContent = info.title;
+            document.getElementById('modalBody').innerHTML = info.body;
+            document.getElementById('infoModal').classList.add('active');
+        }
+
+        function closeInfoModal(event) {
+            if (event && event.target !== event.currentTarget) return;
+            document.getElementById('infoModal').classList.remove('active');
+        }
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeInfoModal();
+        });
+
+        // Person data for charts
+        // Person data is now in allPeopleData with monthly breakdowns
+
+        // Person detail descriptions
+        const personDescriptions = {};
+
+        function showPersonDetail(personId) {
+            const person = allPeopleData[personId];
+            if (!person) return;
+
+            // Calculate mentions in current range
+            const startMonth = filteredMonths[0];
+            const endMonth = filteredMonths[filteredMonths.length - 1];
+
+            let totalMentions = 0;
+            const activeMonths = [];
+            Object.entries(person.byMonth).forEach(([month, count]) => {
+                if (month >= startMonth && month <= endMonth) {
+                    totalMentions += count;
+                    activeMonths.push(month);
+                }
+            });
+
+            const description = personDescriptions[personId] || `${person.context} mentioned in conversations.`;
+
+            // Build monthly breakdown
+            const monthlyBreakdown = Object.entries(person.byMonth)
+                .filter(([month]) => month >= startMonth && month <= endMonth)
+                .sort((a, b) => a[0].localeCompare(b[0]))
+                .map(([month, count]) => {
+                    const monthData = allMonthlyData.find(m => m.month === month);
+                    const label = monthData ? monthData.label : month;
+                    return `<span style="padding: 0.3rem 0.6rem; background: var(--bg-dark); border-radius: 4px; font-size: 0.8rem;">${label}: ${count}</span>`;
+                }).join(' ');
+
+            const body = `
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+                    <div style="width: 60px; height: 60px; background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple)); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700; color: white;">
+                        ${person.name.charAt(0)}
+                    </div>
+                    <div>
+                        <div style="font-size: 1.3rem; font-weight: 600;">${person.name}</div>
+                        <div style="color: var(--text-secondary);">${person.context}</div>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
+                    <div style="text-align: center; padding: 0.75rem; background: var(--bg-dark); border-radius: 8px;">
+                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--accent-blue);">${totalMentions}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary);">Mentions in range</div>
+                    </div>
+                    <div style="text-align: center; padding: 0.75rem; background: var(--bg-dark); border-radius: 8px;">
+                        <div style="font-size: 1.5rem; font-weight: 700;">${activeMonths.length}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary);">Active months</div>
+                    </div>
+                </div>
+
+                <h4>About</h4>
+                <p style="margin-bottom: 1rem;">${description}</p>
+
+                ${monthlyBreakdown ? `
+                <h4>Monthly Breakdown</h4>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;">
+                    ${monthlyBreakdown}
+                </div>
+                ` : ''}
+
+                <button onclick="generatePersonInsights('${personId}')"
+                    id="generateInsightsBtn"
+                    style="width: 100%; padding: 0.75rem 1rem; background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue)); color: white; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-top: 1rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                    <span>✨</span> Generate AI Insights
+                </button>
+                <div id="personInsightsContainer" style="margin-top: 1rem;"></div>
+            `;
+
+            document.getElementById('modalTitle').textContent = person.name;
+            document.getElementById('modalBody').innerHTML = body;
+            document.getElementById('infoModal').classList.add('active');
+        }
+
+        // LLM API configuration
+        const LLM_API_URL = 'http://localhost:9988/anthropic/v1/messages';
+        const LLM_API_KEY = 'sk-aB1cD2eF3gH4jK5lM6nP7qR8sT9uV0wX1yZ2bC3nM4pK5sL6';
+        const LLM_MODEL = 'anthropic--claude-4.5-sonnet';
+
+        // Cache for LLM insights data - embedded by build script or loaded via fetch
+        /* __LLM_INSIGHTS_DATA__ */
+        if (typeof llmInsightsData === 'undefined') {
+            var llmInsightsData = null;
+        }
+
+        async function loadLLMInsightsData() {
+            if (llmInsightsData) return llmInsightsData;
+            try {
+                const response = await fetch('./output/llm_insights.json');
+                if (response.ok) {
+                    llmInsightsData = await response.json();
+                }
+            } catch (e) {
+                console.warn('LLM insights not available (run npm run analyze)');
+            }
+            return llmInsightsData;
+        }
+
+        // Person insights data - embedded by build script or loaded via fetch
+        /* __PERSON_INSIGHTS_DATA__ */
+        if (typeof personInsightsData === 'undefined') {
+            var personInsightsData = null;
+        }
+
+        async function loadPersonInsights() {
+            if (personInsightsData) return personInsightsData;
+            try {
+                const response = await fetch('./output/person_insights.json');
+                if (response.ok) {
+                    personInsightsData = await response.json();
+                }
+            } catch (e) {
+                console.warn('Person insights not available (run npm run analyze)');
+            }
+            return personInsightsData;
+        }
+
+        async function generatePersonInsights(personId) {
+            const btn = document.getElementById('generateInsightsBtn');
+            const container = document.getElementById('personInsightsContainer');
+            const person = allPeopleData[personId];
+
+            if (!person) return;
+
+            // Show loading state
+            btn.disabled = true;
+            btn.innerHTML = '<span style="animation: spin 1s linear infinite; display: inline-block;">⏳</span> Loading...';
+            container.innerHTML = '<div style="text-align: center; padding: 1rem; color: var(--text-secondary);">Loading insights...</div>';
+
+            // Load pre-generated insights
+            const insights = await loadPersonInsights();
+
+            if (insights && insights[personId]) {
+                renderPersonInsights(insights[personId], container);
+            } else {
+                container.innerHTML = `
+                    <div style="padding: 1rem; background: rgba(239, 68, 68, 0.1); border: 1px solid var(--accent-red); border-radius: 8px; color: var(--text-secondary);">
+                        No insights available for ${person.name}.
+                        <br><small>Run <code>node generate_person_insights.js</code> to generate.</small>
+                    </div>
+                `;
+            }
+
+            // Reset button
+            btn.disabled = false;
+            btn.innerHTML = '<span>✨</span> View AI Insights';
+        }
+
+        function renderPersonInsights(insights, container) {
+            const sentimentColor = insights.sentiment_interpretation?.includes('positive') ? 'var(--accent-green)' :
+                                   insights.sentiment_interpretation?.includes('negative') ? 'var(--accent-red)' : 'var(--accent-blue)';
+
+            container.innerHTML = `
+                <div style="background: var(--bg-dark); border-radius: 12px; padding: 1rem; border: 1px solid var(--accent-purple);">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                        <span style="color: var(--accent-purple);">✨</span>
+                        <strong style="color: var(--accent-purple);">AI-Generated Insights</strong>
+                    </div>
+
+                    <div style="margin-bottom: 1rem;">
+                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Relationship Type</div>
+                        <div style="color: var(--accent-blue); font-weight: 600;">${insights.relationship_type || 'Unknown'}</div>
+                    </div>
+
+                    <div style="margin-bottom: 1rem;">
+                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Dynamics</div>
+                        <div style="color: var(--text-primary); font-size: 0.9rem;">${insights.dynamics || 'N/A'}</div>
+                    </div>
+
+                    ${insights.patterns?.length ? `
+                    <div style="margin-bottom: 1rem;">
+                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem;">Patterns</div>
+                        <ul style="margin: 0; padding-left: 1.25rem; color: var(--text-secondary); font-size: 0.85rem;">
+                            ${insights.patterns.map(p => `<li>${p}</li>`).join('')}
+                        </ul>
+                    </div>
+                    ` : ''}
+
+                    <div style="margin-bottom: 1rem;">
+                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Sentiment Analysis</div>
+                        <div style="color: ${sentimentColor}; font-size: 0.9rem;">${insights.sentiment_interpretation || 'N/A'}</div>
+                    </div>
+
+                    ${insights.strengths?.length ? `
+                    <div style="margin-bottom: 1rem;">
+                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem;">Strengths</div>
+                        <ul style="margin: 0; padding-left: 1.25rem; color: var(--accent-green); font-size: 0.85rem;">
+                            ${insights.strengths.map(s => `<li>${s}</li>`).join('')}
+                        </ul>
+                    </div>
+                    ` : ''}
+
+                    ${insights.concerns?.length ? `
+                    <div style="margin-bottom: 1rem;">
+                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem;">Areas to Watch</div>
+                        <ul style="margin: 0; padding-left: 1.25rem; color: var(--accent-orange); font-size: 0.85rem;">
+                            ${insights.concerns.map(c => `<li>${c}</li>`).join('')}
+                        </ul>
+                    </div>
+                    ` : ''}
+
+                    ${insights.recommendations?.length ? `
+                    <div>
+                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem;">Recommendations</div>
+                        <ul style="margin: 0; padding-left: 1.25rem; color: var(--accent-blue); font-size: 0.85rem;">
+                            ${insights.recommendations.map(r => `<li>${r}</li>`).join('')}
+                        </ul>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        function showAllPeople() {
+            // Not needed anymore - people cards show in modal now
+        }
+
+        // Chart.js defaults
+        Chart.defaults.color = '#9090a0';
+        Chart.defaults.borderColor = '#2a2a3a';
+
+        // Key events for timeline annotations - uses month keys, filtered dynamically
+        const chartKeyEvents = [
+            { month: '2024-08', label: 'Started Claude', color: '#4a9eff', category: 'work' },
+            { month: '2024-11', label: 'SAP application', color: '#4a9eff', category: 'work' },
+            { month: '2024-12', label: 'December crisis', color: '#ef4444', category: 'health' },
+            { month: '2025-01', label: 'Recovery begins', color: '#22c55e', category: 'health' },
+            { month: '2025-03', label: '30th birthday', color: '#22c55e', category: 'social' },
+            { month: '2025-06', label: 'Trauma work resumes', color: '#a855f7', category: 'therapy' },
+            { month: '2025-07', label: 'BREAKUP', color: '#ec4899', category: 'relationship' },
+            { month: '2025-09', label: 'Friends after 30', color: '#22c55e', category: 'social' },
+            { month: '2025-10', label: 'Peak usage', color: '#4a9eff', category: 'work' },
+            { month: '2025-12', label: 'Ankle fracture', color: '#ef4444', category: 'health' },
+            { month: '2026-01', label: 'Surgery recovery', color: '#ef4444', category: 'health' },
+            { month: '2026-02', label: 'Therapy ended', color: '#f97316', category: 'therapy' },
+            { month: '2026-03', label: 'Alexander Technique', color: '#22c55e', category: 'therapy' }
+        ];
+
+        // Generate annotation objects for Chart.js based on current filtered range
+        function generateEventAnnotations(visible) {
+            const annotations = {};
+            if (!visible) return annotations;
+
+            // Filter events to those in the current range
+            const currentMonths = filteredData.map(m => m.month);
+
+            chartKeyEvents.forEach((event, i) => {
+                const monthIndex = currentMonths.indexOf(event.month);
+                if (monthIndex === -1) return; // Skip events outside current range
+
+                annotations['line' + i] = {
+                    type: 'line',
+                    xMin: monthIndex,
+                    xMax: monthIndex,
+                    borderColor: event.color,
+                    borderWidth: 2,
+                    borderDash: [4, 4],
+                    label: {
+                        display: true,
+                        content: event.label,
+                        position: 'start',
+                        backgroundColor: 'rgba(15, 15, 20, 0.9)',
+                        color: event.color,
+                        font: { size: 10 },
+                        padding: 4,
+                        rotation: -90,
+                        yAdjust: -10
+                    }
+                };
+            });
+            return annotations;
+        }
+
+        // Sentiment & Wellbeing Chart
+        const sentimentCtx = document.getElementById('sentimentChart').getContext('2d');
+        mainChart = new Chart(sentimentCtx, {
+            type: 'line',
+            data: {
+                labels: filteredData.map(m => m.label),
+                datasets: [{
+                    label: 'Sentiment',
+                    data: filteredData.map(m => m.sentiment),
+                    borderColor: '#a855f7',
+                    backgroundColor: 'rgba(168, 85, 247, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    yAxisID: 'y'
+                }, {
+                    label: 'Wellbeing',
+                    data: filteredData.map(m => m.wellbeing),
+                    borderColor: '#4a9eff',
+                    backgroundColor: 'rgba(74, 158, 255, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    yAxisID: 'y1'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                plugins: {
+                    legend: {
+                        position: 'top'
+                    },
+                    annotation: {
+                        annotations: {}
+                    }
+                },
+                scales: {
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Sentiment (-1 to +1)'
+                        },
+                        min: -1,
+                        max: 1
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Wellbeing / Agency %'
+                        },
+                        min: 0,
+                        max: 100,
+                        grid: {
+                            drawOnChartArea: false
+                        }
+                    }
+                }
+            }
+        });
+
+        // Toggle event annotations
+        function toggleEventAnnotations(show) {
+            if (mainChart) {
+                mainChart.options.plugins.annotation.annotations = generateEventAnnotations(show);
+                mainChart.update();
+            }
+        }
+
+        let showingChangeRate = false;
+
+        function toggleChangeRate(show) {
+            showingChangeRate = show;
+
+            if (!mainChart) return;
+
+            // Use smoothed data for charts
+            const sentiment = filteredDataSmoothed.map(m => m.sentiment);
+            const wellbeing = filteredDataSmoothed.map(m => m.wellbeing);
+
+            if (show) {
+                // Calculate change rates (difference from previous)
+                const calcChangeRate = (arr) => arr.map((val, i) => i === 0 ? 0 : parseFloat((val - arr[i-1]).toFixed(2)));
+
+                mainChart.data.datasets[0].data = calcChangeRate(sentiment);
+                mainChart.data.datasets[1].data = calcChangeRate(wellbeing);
+
+                // Update labels
+                mainChart.data.datasets[0].label = 'Sentiment Δ';
+                mainChart.data.datasets[1].label = 'Wellbeing Δ';
+
+                // Adjust y-axis for change rates
+                mainChart.options.scales.y.min = undefined;
+                mainChart.options.scales.y.max = undefined;
+                mainChart.options.scales.y1.min = undefined;
+                mainChart.options.scales.y1.max = undefined;
+            } else {
+                // Show absolute values
+                mainChart.data.datasets[0].data = sentiment;
+                mainChart.data.datasets[1].data = wellbeing;
+
+                mainChart.data.datasets[0].label = 'Sentiment';
+                mainChart.data.datasets[1].label = 'Wellbeing';
+
+                mainChart.options.scales.y.min = -1;
+                mainChart.options.scales.y.max = 1;
+                mainChart.options.scales.y1.min = 0;
+                mainChart.options.scales.y1.max = 100;
+            }
+
+            mainChart.update();
+        }
+
+        // Emotion balance chart
+        const emotionCtx = document.getElementById('emotionChart').getContext('2d');
+        emotionChart = new Chart(emotionCtx, {
+            type: 'bar',
+            data: {
+                labels: filteredData.map(m => m.label),
+                datasets: [{
+                    label: 'Positive',
+                    data: filteredData.map(m => Math.max(0, Math.round(m.sentiment * 100 + 50))),
+                    backgroundColor: '#22c55e'
+                }, {
+                    label: 'Negative',
+                    data: filteredData.map(m => Math.max(0, Math.round(-m.sentiment * 100 + 50))),
+                    backgroundColor: '#ef4444'
+                }, {
+                    label: 'Neutral',
+                    data: filteredData.map(m => Math.round(100 - Math.abs(m.sentiment * 50))),
+                    backgroundColor: '#4a9eff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true
+                    },
+                    y: {
+                        stacked: true
+                    }
+                }
+            }
+        });
+
+        // Activity chart
+        const activityCtx = document.getElementById('activityChart').getContext('2d');
+        activityChart = new Chart(activityCtx, {
+            type: 'bar',
+            data: {
+                labels: filteredData.map(m => m.label),
+                datasets: [{
+                    label: 'Messages',
+                    data: filteredData.map(m => m.messages),
+                    backgroundColor: function(context) {
+                        const value = context.raw;
+                        if (value > 400) return '#22c55e';
+                        if (value > 200) return '#4a9eff';
+                        if (value > 100) return '#f97316';
+                        return '#ef4444';
+                    }
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                }
+            }
+        });
+
+        // Drama Triangle chart
+        let dramaChart = null;
+        let empoweredChart = null;
+
+        function initDramaCharts() {
+            const dramaCtx = document.getElementById('dramaChart')?.getContext('2d');
+            const empCtx = document.getElementById('empoweredChart')?.getContext('2d');
+
+            if (!dramaCtx || !empCtx) return;
+
+            // Use smoothed data for trend charts
+            const labels = filteredDataSmoothed.map(m => m.label);
+            const monthKeys = filteredData.map(m => m.month || m.week); // Raw keys for lookup
+            const victimData = monthKeys.map(k => dramaTriangleData[k]?.victim || 0);
+            const persecutorData = monthKeys.map(k => dramaTriangleData[k]?.persecutor || 0);
+            const rescuerData = monthKeys.map(k => dramaTriangleData[k]?.rescuer || 0);
+            const empoweredData = monthKeys.map(k => dramaTriangleData[k]?.empowered || 0);
+
+            if (dramaChart) dramaChart.destroy();
+            dramaChart = new Chart(dramaCtx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Victim',
+                            data: victimData,
+                            borderColor: '#ef4444',
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                            fill: true,
+                            tension: 0.3
+                        },
+                        {
+                            label: 'Persecutor',
+                            data: persecutorData,
+                            borderColor: '#f97316',
+                            backgroundColor: 'rgba(249, 115, 22, 0.1)',
+                            fill: true,
+                            tension: 0.3
+                        },
+                        {
+                            label: 'Rescuer',
+                            data: rescuerData,
+                            borderColor: '#eab308',
+                            backgroundColor: 'rgba(234, 179, 8, 0.1)',
+                            fill: true,
+                            tension: 0.3
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top', labels: { color: '#9090a0', usePointStyle: true } }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Per 100 messages', color: '#9090a0' },
+                            grid: { color: '#2a2a3a' },
+                            ticks: { color: '#9090a0' }
+                        },
+                        x: {
+                            grid: { color: '#2a2a3a' },
+                            ticks: { color: '#9090a0' }
+                        }
+                    }
+                }
+            });
+
+            if (empoweredChart) empoweredChart.destroy();
+            empoweredChart = new Chart(empCtx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Empowered',
+                            data: empoweredData,
+                            backgroundColor: '#22c55e',
+                            borderRadius: 4
+                        },
+                        {
+                            label: 'Victim',
+                            data: victimData,
+                            backgroundColor: '#ef4444',
+                            borderRadius: 4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top', labels: { color: '#9090a0', usePointStyle: true } }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Per 100 messages', color: '#9090a0' },
+                            grid: { color: '#2a2a3a' },
+                            ticks: { color: '#9090a0' }
+                        },
+                        x: {
+                            grid: { color: '#2a2a3a' },
+                            ticks: { color: '#9090a0' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Wellbeing gauge - initialized dynamically via updateGauge()
+        const gaugeFill = document.getElementById('gaugeFill');
+        const circumference = 2 * Math.PI * 85;
+        gaugeFill.style.strokeDasharray = circumference;
+
+
+        // Word cloud data by month (extracted from conversations)
+        /* __WORD_CLOUD_DATA__ */
+        const wordDataByMonth = typeof wordCloudByMonth !== "undefined" ? wordCloudByMonth : {};
+        // Dynamic word cloud keys based on filtered range
+        let wcMonthKeys = ['all'];
+
+        function updateWordCloudControls() {
+            // Build month keys: "all" + each month in filtered range
+            wcMonthKeys = ['all', ...filteredMonths];
+
+            const slider = document.getElementById('wordcloudSlider');
+            const labelsContainer = document.getElementById('wordcloudLabels');
+
+            if (!slider || !labelsContainer) return;
+
+            // Update slider max
+            slider.max = wcMonthKeys.length - 1;
+            slider.value = 0;
+
+            // Build labels - generate dynamically from month key
+            const monthLabels = {};
+            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            wcMonthKeys.forEach(key => {
+                if (key !== 'all') {
+                    const [year, month] = key.split('-');
+                    monthLabels[key] = monthNames[parseInt(month) - 1] + ' ' + year.slice(2);
+                }
+            });
+
+            labelsContainer.innerHTML = wcMonthKeys.map((key, i) => {
+                const label = key === 'all' ? 'All' : (monthLabels[key] || key);
+                const wordCount = (wordDataByMonth[key] || []).length;
+                return `<span class="wc-label ${i === 0 ? 'active' : ''}" data-index="${i}">${label}<span class="wc-word-count">${wordCount} words</span></span>`;
+            }).join('');
+
+            // Reattach click listeners
+            document.querySelectorAll('.wc-label').forEach(label => {
+                label.addEventListener('click', () => {
+                    const index = parseInt(label.dataset.index);
+                    document.getElementById('wordcloudSlider').value = index;
+                    updateWordCloud(index);
+                });
+            });
+
+            // Render "All" by default
+            renderWordCloud(0);
+        }
+
+        function renderWordCloud(monthIndex) {
+            const monthKey = wcMonthKeys[monthIndex] || 'all';
+
+            // For "all", aggregate words from all months in range
+            let wordData;
+            if (monthKey === 'all') {
+                const aggregated = {};
+                filteredMonths.forEach(m => {
+                    (wordDataByMonth[m] || []).forEach(([word, count]) => {
+                        aggregated[word] = (aggregated[word] || 0) + count;
+                    });
+                });
+                wordData = Object.entries(aggregated)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 40);
+            } else {
+                wordData = wordDataByMonth[monthKey] || [];
+            }
+
+            const wcContainer = document.getElementById('wordcloud');
+            if (!wcContainer || wordData.length === 0) return;
+
+            wcContainer.innerHTML = '';
+
+            const wcWidth = wcContainer.offsetWidth || 400;
+            const wcHeight = wcContainer.offsetHeight || 260;
+
+            const maxWeight = Math.max(...wordData.map(w => w[1]));
+            const minWeight = Math.min(...wordData.map(w => w[1]));
+            const scaleFactor = monthIndex === 0 ? 1.0 : 1.5;
+
+            WordCloud(wcContainer, {
+                list: wordData,
+                gridSize: Math.round(4 * wcWidth / 400),
+                weightFactor: function(size) {
+                    const normalized = (size - minWeight) / (maxWeight - minWeight || 1);
+                    const baseSize = 12 + (normalized * 45 * scaleFactor);
+                    return baseSize * (wcWidth / 400);
+                },
+                fontFamily: 'SF Pro Display, -apple-system, sans-serif',
+                color: function(word, weight) {
+                    const negativeWords = ['alone', 'pain', 'trauma', 'hard', 'anxiety', 'scared', 'crying', 'sobbing', 'afraid', 'sad', 'angry', 'stuck', 'fucking', 'fuck', 'broken', 'christmas'];
+                    const positiveWords = ['better', 'friends', 'friend', 'real', 'healing', 'alexander', 'good', 'great', 'joy', 'alive', 'dance', 'party', 'happy', 'technique', 'training'];
+                    if (negativeWords.includes(word.toLowerCase())) return '#ef4444';
+                    if (positiveWords.includes(word.toLowerCase())) return '#22c55e';
+                    return '#4a9eff';
+                },
+                backgroundColor: 'transparent',
+                rotateRatio: 0.25,
+                minSize: 10,
+                drawOutOfBound: false,
+                shrinkToFit: true,
+                shuffle: false
+            });
+        }
+
+        function updateWordCloud(value) {
+            const index = parseInt(value);
+
+            document.querySelectorAll('.wc-label').forEach((label, i) => {
+                label.classList.toggle('active', i === index);
+            });
+
+            renderWordCloud(index);
+        }
+
+        // Initialize date range selectors and load data
+        initDateSelectors();
+
+        // Load and render LLM insights - embedded or from file
+        async function loadLLMInsights() {
+            // Check if data was embedded by build script
+            if (llmInsightsData) {
+                renderLLMInsights(llmInsightsData);
+                return;
+            }
+            // Otherwise try to fetch from file
+            try {
+                const response = await fetch('./output/llm_insights.json');
+                if (!response.ok) throw new Error('Could not load llm_insights.json');
+                const data = await response.json();
+                llmInsightsData = data;
+                renderLLMInsights(data);
+            } catch (error) {
+                console.warn('LLM insights not available (run npm run analyze)');
+                document.getElementById('llmInsightsContent').innerHTML = `
+                    <div style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+                        <p>LLM insights not available.</p>
+                        <p style="font-size: 0.8rem;">Run <code>npm run analyze</code> then <code>npm run build</code> to include LLM insights.</p>
+                    </div>
+                `;
+            }
+        }
+
+        function renderLLMInsights(data) {
+            const container = document.getElementById('llmInsightsContent');
+            if (!data.insights) {
+                container.innerHTML = '<div style="padding: 2rem; color: var(--text-secondary);">No insights generated yet.</div>';
+                return;
+            }
+
+            const insights = data.insights;
+            let html = '';
+
+            // Patterns
+            if (insights.patterns?.length) {
+                html += `
+                    <div style="background: var(--bg-dark); border-radius: 12px; padding: 1.25rem;">
+                        <h4 style="color: var(--accent-orange); margin-bottom: 0.75rem; font-size: 0.95rem;">Patterns Identified</h4>
+                        <ul style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.7; padding-left: 1.25rem; margin: 0;">
+                            ${insights.patterns.slice(0, 5).map(p => `
+                                <li><strong style="color: var(--text-primary);">${p.pattern}</strong>
+                                    <span style="color: ${p.impact === 'positive' ? 'var(--accent-green)' : p.impact === 'negative' ? 'var(--accent-red)' : 'var(--text-muted)'};">(${p.impact})</span>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+
+            // Turning Points
+            if (insights.turning_points?.length) {
+                html += `
+                    <div style="background: var(--bg-dark); border-radius: 12px; padding: 1.25rem;">
+                        <h4 style="color: var(--accent-blue); margin-bottom: 0.75rem; font-size: 0.95rem;">Turning Points</h4>
+                        <ul style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.7; padding-left: 1.25rem; margin: 0;">
+                            ${insights.turning_points.slice(0, 5).map(t => `
+                                <li><strong style="color: var(--accent-blue);">${t.period}:</strong> ${t.description.slice(0, 100)}${t.description.length > 100 ? '...' : ''}</li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+
+            // Recommendations
+            if (insights.recommendations?.length) {
+                html += `
+                    <div style="background: var(--bg-dark); border-radius: 12px; padding: 1.25rem;">
+                        <h4 style="color: var(--accent-green); margin-bottom: 0.75rem; font-size: 0.95rem;">Recommendations</h4>
+                        <ol style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.7; padding-left: 1.25rem; margin: 0;">
+                            ${insights.recommendations.slice(0, 5).map(r => `
+                                <li><strong style="color: var(--text-primary);">[${r.area}]</strong> ${r.action.slice(0, 100)}${r.action.length > 100 ? '...' : ''}</li>
+                            `).join('')}
+                        </ol>
+                    </div>
+                `;
+            }
+
+            // Risk Factors & Strengths
+            html += `
+                <div style="background: var(--bg-dark); border-radius: 12px; padding: 1.25rem;">
+                    <h4 style="color: var(--accent-red); margin-bottom: 0.5rem; font-size: 0.95rem;">Risk Factors</h4>
+                    <ul style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.6; padding-left: 1.25rem; margin: 0 0 1rem 0;">
+                        ${(insights.risk_factors || []).slice(0, 3).map(r => `<li>${r.slice(0, 80)}${r.length > 80 ? '...' : ''}</li>`).join('')}
+                    </ul>
+                    <h4 style="color: var(--accent-purple); margin-bottom: 0.5rem; font-size: 0.95rem;">Strengths</h4>
+                    <ul style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.6; padding-left: 1.25rem; margin: 0;">
+                        ${(insights.strengths || []).slice(0, 3).map(s => `<li>${s.slice(0, 80)}${s.length > 80 ? '...' : ''}</li>`).join('')}
+                    </ul>
+                </div>
+            `;
+
+            // Overall Trajectory
+            if (insights.trajectory) {
+                html += `
+                    <div style="background: var(--bg-dark); border-radius: 12px; padding: 1.25rem; grid-column: 1 / -1;">
+                        <h4 style="color: var(--accent-purple); margin-bottom: 0.75rem; font-size: 0.95rem;">Overall Trajectory</h4>
+                        <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.7; margin: 0;">
+                            ${insights.trajectory}
+                        </p>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = html;
+        }
+
+        // Load LLM insights on page load
+        loadLLMInsights();
+
+        // ============================================
+        // CATEGORY ANALYSIS CHARTS
+        // ============================================
+        async function loadCategoryAnalysis() {
+            // Check if data was embedded by build script
+            if (categoryData) {
+                renderCategoryCharts();
+                return;
+            }
+            // Otherwise try to fetch from file
+            try {
+                const response = await fetch('./output/category_analysis.json');
+                if (!response.ok) throw new Error('Could not load category_analysis.json');
+                categoryData = await response.json();
+                renderCategoryCharts();
+            } catch (error) {
+                console.warn('Category analysis not available (run npm run analyze)');
+                const canvas = document.getElementById('categoryChart');
+                if (canvas) {
+                    canvas.parentElement.innerHTML = `
+                        <div style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+                            <p>Category data not available.</p>
+                            <p style="font-size: 0.8rem;">Run <code>npm run analyze</code> to generate LLM insights.</p>
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        function renderCategoryCharts() {
+            if (!categoryData) return;
+
+            // Get date range from filteredMonths
+            const startMonth = filteredMonths[0];
+            const endMonth = filteredMonths[filteredMonths.length - 1];
+
+            const categoryColors = {
+                'relationships': '#ef4444',
+                'work': '#3b82f6',
+                'mental_health': '#a855f7',
+                'practical': '#6b7280',
+                'creative': '#f97316',
+                'tech': '#22d3ee',
+                'health': '#22c55e',
+                'finance': '#eab308',
+                'learning': '#8b5cf6',
+                'other': '#64748b'
+            };
+
+            // Category Pie Chart - aggregate for selected range
+            const categories = categoryData.categories || {};
+            const rangeMonths = Object.keys(categories).filter(m => m >= startMonth && m <= endMonth).sort();
+
+            // Calculate totals for selected range
+            const rangeTotals = {};
+            rangeMonths.forEach(m => {
+                Object.entries(categories[m] || {}).forEach(([cat, count]) => {
+                    rangeTotals[cat] = (rangeTotals[cat] || 0) + count;
+                });
+            });
+
+            const labels = Object.keys(rangeTotals).sort((a, b) => rangeTotals[b] - rangeTotals[a]);
+            const values = labels.map(l => rangeTotals[l]);
+            const total = values.reduce((a, b) => a + b, 0);
+
+            const ctx1 = document.getElementById('categoryChart');
+            if (ctx1) {
+                if (categoryChart) categoryChart.destroy();
+                if (total > 0) {
+                    categoryChart = new Chart(ctx1.getContext('2d'), {
+                        type: 'doughnut',
+                        data: {
+                            labels: labels.map(l => l.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())),
+                            datasets: [{
+                                data: values,
+                                backgroundColor: labels.map(l => categoryColors[l] || '#64748b'),
+                                borderWidth: 0
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: 'right',
+                                    labels: {
+                                        color: '#9ca3af',
+                                        padding: 10,
+                                        font: { size: 11 }
+                                    }
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: (ctx) => {
+                                            const pct = ((ctx.raw / total) * 100).toFixed(1);
+                                            return `${ctx.label}: ${ctx.raw} (${pct}%)`;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+
+            // Victim vs Empowered LLM Chart - filter for selected range
+            const victimData = categoryData.victim_analysis || {};
+            const months = Object.keys(victimData).filter(m => m >= startMonth && m <= endMonth).sort();
+            const victimScores = months.map(m => victimData[m]?.victim_score || 0);
+            const empoweredScores = months.map(m => victimData[m]?.empowered_score || 0);
+
+            const ctx2 = document.getElementById('victimLlmChart');
+            if (ctx2 && months.length > 0) {
+                if (victimLlmChart) victimLlmChart.destroy();
+                victimLlmChart = new Chart(ctx2.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: months.map(m => {
+                            const [y, mo] = m.split('-');
+                            return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(mo)-1]} ${y.slice(2)}`;
+                        }),
+                        datasets: [
+                            {
+                                label: 'Empowered',
+                                data: empoweredScores,
+                                borderColor: '#22c55e',
+                                backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                                fill: true,
+                                tension: 0.3
+                            },
+                            {
+                                label: 'Victim',
+                                data: victimScores,
+                                borderColor: '#ef4444',
+                                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                fill: true,
+                                tension: 0.3
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                min: 0,
+                                max: 100,
+                                grid: { color: 'rgba(255,255,255,0.05)' },
+                                ticks: { color: '#9ca3af' }
+                            },
+                            x: {
+                                grid: { color: 'rgba(255,255,255,0.05)' },
+                                ticks: { color: '#9ca3af', maxRotation: 45, minRotation: 45, font: { size: 9 } }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                labels: { color: '#9ca3af' }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Category Over Time - Stacked Area Chart (filtered by date range)
+            const catMonths = rangeMonths; // Use the already filtered months
+            const allCats = [...new Set(catMonths.flatMap(m => Object.keys(categories[m] || {})))];
+
+            const ctx3 = document.getElementById('categoryTimeChart');
+            if (ctx3 && catMonths.length > 0) {
+                if (categoryTimeChart) categoryTimeChart.destroy();
+
+                // Sort categories by total count for better visual stacking
+                const sortedCats = [...allCats].sort((a, b) => {
+                    const totalA = catMonths.reduce((sum, m) => sum + (categories[m]?.[a] || 0), 0);
+                    const totalB = catMonths.reduce((sum, m) => sum + (categories[m]?.[b] || 0), 0);
+                    return totalB - totalA;
+                });
+
+                categoryTimeChart = new Chart(ctx3.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: catMonths.map(m => {
+                            const [y, mo] = m.split('-');
+                            return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(mo)-1]} ${y.slice(2)}`;
+                        }),
+                        datasets: sortedCats.map(cat => ({
+                            label: cat.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()),
+                            data: catMonths.map(m => categories[m]?.[cat] || 0),
+                            backgroundColor: categoryColors[cat] || '#64748b',
+                            borderColor: categoryColors[cat] || '#64748b',
+                            borderWidth: 1,
+                            fill: true,
+                            tension: 0.3,
+                            pointRadius: 2
+                        }))
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false
+                        },
+                        scales: {
+                            y: {
+                                stacked: true,
+                                grid: { color: 'rgba(255,255,255,0.05)' },
+                                ticks: { color: '#9ca3af' }
+                            },
+                            x: {
+                                grid: { display: false },
+                                ticks: { color: '#9ca3af', maxRotation: 45, minRotation: 45, font: { size: 9 } }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: { color: '#9ca3af', font: { size: 10 }, padding: 8, boxWidth: 12 }
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                callbacks: {
+                                    footer: (items) => {
+                                        const total = items.reduce((sum, item) => sum + item.raw, 0);
+                                        return `Total: ${total} messages`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        // Load category analysis on page load
+        loadCategoryAnalysis();
+    </script>
+</body>
+</html>

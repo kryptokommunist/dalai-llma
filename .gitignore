@@ -1,18 +1,20 @@
 # Private data - DO NOT COMMIT
 private_data/
 
+# User data directories (gitignored - users add their own data here)
+data/
+output/
+
+# Generated dashboard (built from template + data)
+dashboard.html
+
 # LLM conversation data
 llm data/
-*.json
-!package.json
-!package-lock.json
 
 # Personal files
 *.ics
-*.zip
 *.jpeg
 *.jpg
-*.png
 !dalaillma-logo.png
 
 # Anthropic data exports
