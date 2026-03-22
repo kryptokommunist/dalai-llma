@@ -20,7 +20,7 @@ const { execSync } = require('child_process');
 // API Configuration
 const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || 'http://localhost:9988/anthropic/';
 const ANTHROPIC_AUTH_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN || '';
-const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-3-sonnet-20240229';
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'anthropic--claude-4.5-sonnet';
 
 // Data paths - configurable via environment variables
 const DATA_DIR = process.env.DATA_DIR || './data';
