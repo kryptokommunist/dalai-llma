@@ -1,5 +1,5 @@
 {
-  "name": "dalaillma",
+  "name": "dalai-llma",
   "version": "1.0.0",
   "description": "LLM Conversation Sentiment Dashboard - Visualize patterns from Claude and ChatGPT exports",
   "main": "scripts/process_data.js",
