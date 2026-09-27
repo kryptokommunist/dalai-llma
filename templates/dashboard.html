@@ -1414,7 +1414,13 @@
             </div>
         </div>
 
-        <!-- Deep Analysis Card -->
+        <!-- Deep Analysis Card - populated from LLM analysis -->
+        <div class="chart-card" id="deepAnalysisCard" style="grid-column: 1 / -1;">
+            <div class="chart-title">Deep Analysis</div>
+            <div id="llmInsightsContent" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; padding: 0.5rem 0;">
+                <div style="padding: 2rem; color: var(--text-secondary);">Loading analysis...</div>
+            </div>
+        </div>
 
                 <!-- Patterns Identified -->
                 <div style="background: var(--bg-dark); border-radius: 12px; padding: 1.25rem;">
@@ -1843,9 +1849,10 @@
             document.getElementById('infoModal').classList.add('active');
         }
 
-        // Detailed month summaries for modal view - with concrete conversation topics
+        // Detailed month summaries - populated at runtime from LLM analysis
         const detailedMonthSummaries = {};
 
+        // Per-month short summaries - populated at runtime from LLM analysis
         const monthSummaries = {};
 
         function getMonthSummary(m) {
@@ -2298,7 +2305,7 @@
                     <div class="formula-box">Wellbeing = sentiment×45 + agency×15 + sleep×15 + social×10 + balance×15</div>
 
                     <h4>Why the new formula?</h4>
-                    <p>Previous version was too flat (53→67). This version captures the <em>dramatic shift</em> from low agency period (agency: 33%) to liberation in March (agency: 80%+).</p>
+                    <p>Previous version was too flat (53→67). This version captures the <em>dramatic shift</em> from low agency to recovery.</p>
 
                     <h4>Score ranges</h4>
                     <ul>
@@ -2345,7 +2352,7 @@
                     <p>Weekly wellbeing score (0-100). Composite heavily weighted toward sentiment (45%) and agency (15%).</p>
 
                     <h4>Green dashed line: Agency %</h4>
-                    <p>Ratio of empowered language ("I can", "I will", "I want") vs victim language ("I can't", "stuck", "trapped"). W01 was 33% (low agency pattern), March is 80%+ (agency).</p>
+                    <p>Ratio of empowered language ("I can", "I will", "I want") vs victim language ("I can't", "stuck", "trapped"). Low agency periods correlate with crisis months, high agency with recovery.</p>
 
                     <h4>How to read it</h4>
                     <ul>
@@ -2493,7 +2500,7 @@
                     <h4>Your patterns</h4>
                     <ul>
                         <li>Feb 2026 shows victim spike (9.3) - therapy ending processing</li>
-                        <li>Dec 2025-Jan 2026 elevated victim - crisis period</li>
+                        <li>Elevated victim pattern in crisis period</li>
                         <li>Jun 2025 persecutor spike (7.8) - boundary frustrations</li>
                     </ul>
                 `
