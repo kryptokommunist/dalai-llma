@@ -438,6 +438,36 @@ Write a rich, honest yearly narrative summary in JSON:
     });
 }
 
+async function extractMonthEvents(month, messages) {
+    // Only use AI chat + journal + email sources — they have meaningful content
+    const richMessages = messages.filter(m =>
+        ['anthropic', 'openai', 'gemini', 'journal', 'email_sent'].includes(m.source)
+    );
+    if (richMessages.length === 0) return [];
+
+    const sample = richMessages
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 20)
+        .map(m => `[${m.source}] ${m.text.substring(0, 200).replace(/\n/g, ' ')}`);
+
+    const prompt = `You are reviewing a person's real digital activity from ${month}: AI conversations, journal entries, and sent emails.
+
+Sample entries:
+${sample.map(m => `- "${m}"`).join('\n')}
+
+Identify ONLY genuinely significant life events this month (things that actually happened in the person's life — not just topics discussed). Examples: medical events, relationship changes, job events, moves, travel, ceremonies, major decisions.
+
+Return a JSON array (empty if nothing significant):
+[
+  {"date": "${month}-15", "title": "Brief event title (max 60 chars)", "category": "health|relationship|work|travel|life|other"}
+]
+
+Return [] if there are no clearly significant life events. Do not invent events not supported by the data.`;
+
+    const response = await callClaude(prompt, 512);
+    return parseJSON(response, []);
+}
+
 async function generatePersonInsight(name, data) {
     const prompt = `Analyze relationship with "${name}":
 
@@ -670,6 +700,35 @@ async function main() {
     const skipped = monthResults.filter(r => r.skipped).length;
     console.log(`\nCompleted: ${processed} processed, ${skipped} skipped (${elapsed1}s)\n`);
 
+    // ========== PHASE 1b: Event Extraction (all months, parallel) ==========
+    // Load existing events to skip months already done
+    let existingEvents = [];
+    if (fs.existsSync(OUTPUT.insights)) {
+        try { existingEvents = JSON.parse(fs.readFileSync(OUTPUT.insights, 'utf8')).events || []; } catch(e) {}
+    }
+    const monthsWithEvents = new Set(existingEvents.map(e => e.date?.substring(0, 7)));
+    const monthsNeedingEvents = FORCE ? months : months.filter(m => !monthsWithEvents.has(m));
+
+    if (monthsNeedingEvents.length > 0) {
+        console.log(`Phase 1b: Event Extraction (${monthsNeedingEvents.length} months, parallel)`);
+        console.log('─'.repeat(40));
+
+        const eventTasks = monthsNeedingEvents.map(month => async () => {
+            try {
+                const events = await extractMonthEvents(month, messagesByMonth[month]);
+                if (events.length) console.log(`  ✓ ${month}: ${events.length} events`);
+                return { month, events };
+            } catch(e) {
+                return { month, events: [] };
+            }
+        });
+
+        const eventResults = await runParallel(eventTasks, PARALLEL_LIMIT);
+        const newEvents = eventResults.flatMap(r => r.events);
+        existingEvents = [...existingEvents.filter(e => !monthsNeedingEvents.includes(e.date?.substring(0,7))), ...newEvents];
+        console.log(`\n  Total events: ${existingEvents.length}\n`);
+    }
+
     // ========== PHASE 2: Aggregation ==========
     console.log('Phase 2: Aggregation');
     console.log('─'.repeat(40));
@@ -678,6 +737,7 @@ async function main() {
         categories: { ...existingData.categories },
         victim_analysis: { ...existingData.victim },
         monthly: {},
+        events: existingEvents,
         category_totals: {},
         yearly_summaries: {},
         generated_at: new Date().toISOString()
@@ -692,7 +752,7 @@ async function main() {
             if (existingData.victim[result.month]) {
                 aggregated.victim_analysis[result.month] = existingData.victim[result.month];
             }
-            // Load existing monthly insight if available
+            // Load existing monthly insight for skipped months
             if (fs.existsSync(OUTPUT.insights)) {
                 try {
                     const d = JSON.parse(fs.readFileSync(OUTPUT.insights, 'utf8'));
@@ -829,6 +889,7 @@ async function main() {
             insights: overallInsights,
             monthly: aggregated.monthly,
             yearly_summaries: aggregated.yearly_summaries,
+            events: aggregated.events.sort((a, b) => a.date?.localeCompare(b.date)),
             generated_at: new Date().toISOString()
         };
         fs.writeFileSync(OUTPUT.insights, JSON.stringify(insightsOutput, null, 2));

@@ -696,7 +696,7 @@ function processData() {
         weeklyData: weeklyResults,
         monthlyData: monthlyResults,
         peopleData,
-        events: uniqueEvents.slice(0, 100),
+        events: uniqueEvents.slice(0, 500),
         wordFrequencies: formattedWordFreq,
         dramaTriangle: dramaByMonth,
         monthSummaries

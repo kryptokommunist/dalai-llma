@@ -98,10 +98,11 @@ function generateWeeklyDataJS(dashboardData) {
     }));
 }
 
-function generateEventsJS(dashboardData) {
-    if (!dashboardData?.events) return '[]';
+function generateEventsJS(dashboardData, insightsData) {
+    // Prefer LLM-extracted events from llm_insights.json over keyword-matched ones
+    const events = insightsData?.events?.length ? insightsData.events : (dashboardData?.events || []);
 
-    return dashboardData.events.map(e => ({
+    return events.map(e => ({
         date: e.date,
         month: e.date?.substring(0, 7) || '',
         title: e.title || 'Event',
@@ -195,7 +196,7 @@ function build() {
     // Generate JavaScript data blocks
     const monthlyData = generateMonthlyDataJS(data.dashboard);
     const weeklyData = generateWeeklyDataJS(data.dashboard);
-    const events = generateEventsJS(data.dashboard);
+    const events = generateEventsJS(data.dashboard, data.insights);
     const dramaTriangle = generateDramaTriangleJS(data.dashboard);
     const peopleData = generatePeopleDataJS(data.dashboard);
     const wordCloud = generateWordCloudJS(data.dashboard);
