@@ -1498,12 +1498,8 @@
         let isWeeklyView = false;
         let movingAverageWindow = 0; // 0 = off, 3 = 3-period MA
 
-        // Category analysis data (loaded async)
         // Category data - embedded by build script or loaded via fetch
         /* __CATEGORY_DATA__ */
-        if (typeof categoryData === 'undefined') {
-            var categoryData = null;
-        }
         let categoryChart = null;
         let victimLlmChart = null;
         let categoryTimeChart = null;

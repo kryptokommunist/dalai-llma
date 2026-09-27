@@ -242,6 +242,8 @@ function build() {
             '/* __CATEGORY_DATA__ */',
             `const categoryData = ${JSON.stringify(data.categories, null, 4).replace(/\n/g, '\n        ')};`
         );
+    } else {
+        template = template.replace('/* __CATEGORY_DATA__ */', 'let categoryData = null;');
     }
 
     // Inject person insights if available
