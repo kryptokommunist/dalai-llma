@@ -25,15 +25,24 @@ const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'anthropic--claude-4.5-so
 // Data paths - configurable via environment variables
 const DATA_DIR = process.env.DATA_DIR || './data';
 const OUTPUT_DIR = process.env.OUTPUT_DIR || './output';
-const ANTHROPIC_DATA = path.join(DATA_DIR, 'anthropic/conversations.json');
+// Prefer newer/larger export in LLM Data dir
+const ANTHROPIC_DATA = fs.existsSync(path.join(DATA_DIR, 'LLM Data/Anthropic/conversations.json'))
+    ? path.join(DATA_DIR, 'LLM Data/Anthropic/conversations.json')
+    : path.join(DATA_DIR, 'anthropic/conversations.json');
 
-// Find OpenAI zip dynamically
+// Find OpenAI zip dynamically (check both locations)
 function findOpenAIZip() {
-    const openaiDir = path.join(DATA_DIR, 'openai');
-    if (!fs.existsSync(openaiDir)) return null;
-    const files = fs.readdirSync(openaiDir);
-    const zip = files.find(f => f.endsWith('.zip') && f.includes('Conversations'));
-    return zip ? path.join(openaiDir, zip) : null;
+    const searchDirs = [
+        path.join(DATA_DIR, 'openai'),
+        path.join(DATA_DIR, 'LLM Data/OpenAI-export')
+    ];
+    for (const dir of searchDirs) {
+        if (!fs.existsSync(dir)) continue;
+        const files = fs.readdirSync(dir);
+        const zip = files.find(f => f.endsWith('.zip') && f.includes('Conversations'));
+        if (zip) return path.join(dir, zip);
+    }
+    return null;
 }
 const OPENAI_ZIP = findOpenAIZip();
 
