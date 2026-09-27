@@ -2833,9 +2833,6 @@ Where decay_factor = 1 - (current_score / 100)
 
         // Cache for LLM insights data - embedded by build script or loaded via fetch
         /* __LLM_INSIGHTS_DATA__ */
-        if (typeof llmInsightsData === 'undefined') {
-            var llmInsightsData = null;
-        }
 
         async function loadLLMInsightsData() {
             if (llmInsightsData) return llmInsightsData;
@@ -2852,9 +2849,6 @@ Where decay_factor = 1 - (current_score / 100)
 
         // Person insights data - embedded by build script or loaded via fetch
         /* __PERSON_INSIGHTS_DATA__ */
-        if (typeof personInsightsData === 'undefined') {
-            var personInsightsData = null;
-        }
 
         async function loadPersonInsights() {
             if (personInsightsData) return personInsightsData;

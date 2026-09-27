@@ -234,6 +234,8 @@ function build() {
             '/* __LLM_INSIGHTS_DATA__ */',
             `const llmInsightsData = ${JSON.stringify(data.insights, null, 4).replace(/\n/g, '\n        ')};`
         );
+    } else {
+        template = template.replace('/* __LLM_INSIGHTS_DATA__ */', 'let llmInsightsData = null;');
     }
 
     // Inject category analysis if available
@@ -252,6 +254,8 @@ function build() {
             '/* __PERSON_INSIGHTS_DATA__ */',
             `const personInsightsData = ${JSON.stringify(data.people, null, 4).replace(/\n/g, '\n        ')};`
         );
+    } else {
+        template = template.replace('/* __PERSON_INSIGHTS_DATA__ */', 'let personInsightsData = null;');
     }
 
     // Write output
