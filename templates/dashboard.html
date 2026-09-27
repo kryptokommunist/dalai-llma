@@ -3479,6 +3479,26 @@ Where decay_factor = 1 - (current_score / 100)
             const insights = data.insights;
             let html = '';
 
+            // Yearly Summaries
+            const yearlySummaries = data.yearly_summaries || {};
+            const yearKeys = Object.keys(yearlySummaries).sort().reverse();
+            if (yearKeys.length > 0) {
+                html += `
+                    <div style="background: var(--bg-dark); border-radius: 12px; padding: 1.25rem; grid-column: 1 / -1;">
+                        <h4 style="color: var(--accent-purple); margin-bottom: 1rem; font-size: 0.95rem;">Year by Year</h4>
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem;" id="yearTabButtons">
+                            ${yearKeys.map((y, i) => `
+                                <button onclick="showYearSummary('${y}')" id="yearBtn_${y}"
+                                    style="padding: 0.3rem 0.75rem; border-radius: 6px; border: 1px solid ${i === 0 ? 'var(--accent-purple)' : 'var(--border)'}; background: ${i === 0 ? 'var(--accent-purple)' : 'transparent'}; color: ${i === 0 ? '#fff' : 'var(--text-secondary)'}; cursor: pointer; font-size: 0.8rem; transition: all 0.15s;">
+                                    ${y}
+                                </button>
+                            `).join('')}
+                        </div>
+                        <div id="yearSummaryContent" style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.8;"></div>
+                    </div>
+                `;
+            }
+
             // Patterns
             if (insights.patterns?.length) {
                 html += `
@@ -3550,6 +3570,39 @@ Where decay_factor = 1 - (current_score / 100)
             }
 
             container.innerHTML = html;
+
+            // Initialize yearly summaries tab
+            if (yearKeys.length > 0) {
+                window._yearlySummariesData = yearlySummaries;
+                showYearSummary(yearKeys[0]);
+            }
+        }
+
+        function showYearSummary(year) {
+            const data = window._yearlySummariesData || {};
+            const d = data[year];
+            const content = document.getElementById('yearSummaryContent');
+            if (!content || !d) return;
+
+            const themes = (d.major_themes || []).map(t => `<span style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.5rem; font-size: 0.75rem; color: var(--accent-purple);">${t}</span>`).join(' ');
+            const turning = (d.key_turning_points || []).map(t => `<li>${t}</li>`).join('');
+
+            content.innerHTML = `
+                ${d.year_in_one_sentence ? `<p style="color: var(--accent-orange); font-style: italic; margin-bottom: 0.75rem;">"${d.year_in_one_sentence}"</p>` : ''}
+                ${d.narrative ? `<div style="white-space: pre-wrap; margin-bottom: 0.75rem;">${d.narrative}</div>` : ''}
+                ${d.emotional_arc ? `<p style="color: var(--text-muted); margin-bottom: 0.5rem;"><strong style="color: var(--text-secondary);">Emotional Arc:</strong> ${d.emotional_arc}</p>` : ''}
+                ${themes ? `<div style="margin-bottom: 0.5rem;">${themes}</div>` : ''}
+                ${turning ? `<ul style="margin-top: 0.5rem; padding-left: 1.25rem;">${turning}</ul>` : ''}
+                ${d.message_count ? `<p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem;">${d.message_count.toLocaleString()} data points</p>` : ''}
+            `;
+
+            // Update button styles
+            document.querySelectorAll('#yearTabButtons button').forEach(btn => {
+                const isActive = btn.id === `yearBtn_${year}`;
+                btn.style.borderColor = isActive ? 'var(--accent-purple)' : 'var(--border)';
+                btn.style.background = isActive ? 'var(--accent-purple)' : 'transparent';
+                btn.style.color = isActive ? '#fff' : 'var(--text-secondary)';
+            });
         }
 
         // Load LLM insights on page load
