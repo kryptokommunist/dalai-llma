@@ -62,8 +62,8 @@ const OUTPUT = {
     dashboard: path.join(OUTPUT_DIR, 'dashboard_data.json')
 };
 
-// Parallel processing config
-const PARALLEL_LIMIT = 5;
+// Parallel processing config — 10 concurrent hits the API ceiling cleanly (15+ causes 429s)
+const PARALLEL_LIMIT = 10;
 const BATCH_SIZE = 30;
 const MAX_RETRIES = 3;
 
