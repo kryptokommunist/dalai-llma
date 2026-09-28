@@ -19,6 +19,10 @@ const yearlySummaries = insights.yearly_summaries || {};
 const overall = insights.insights || {};
 const events = insights.events || [];
 const domainArcs = insights.domain_arcs || {};
+const relationshipMonthly = insights.relationship_monthly || {};
+const relationshipArcs = insights.relationship_arcs || {};
+const substanceMonthly = insights.substance_monthly || {};
+const substanceArcs = insights.substance_arcs || {};
 
 const yearKeys = Object.keys(yearlySummaries).sort();
 
@@ -213,6 +217,117 @@ const patternsHtml = (overall.patterns || []).map(p => `
         <div class="pattern-text">${escHtml(p.pattern || '')}</div>
         ${p.evidence ? `<div class="pattern-evidence">${escHtml(p.evidence.slice(0,250))}</div>` : ''}
     </div>`).join('\n');
+
+// ── Relationships & Substances rendering ──────────────────────────────────────
+
+function weightColor(w) {
+    if (w === 'heavy') return '#f7768e';
+    if (w === 'significant') return '#ff9e64';
+    if (w === 'moderate') return '#e0af68';
+    return '#7982a9';
+}
+
+function concernColor(c) {
+    if (c === 'high') return '#f7768e';
+    if (c === 'moderate') return '#ff9e64';
+    if (c === 'low') return '#e0af68';
+    return '#9ece6a';
+}
+
+function trendBadge(trend) {
+    const map = { increasing: '↑ increasing', decreasing: '↓ decreasing', stable: '→ stable', episodic: '⟳ episodic', unclear: '~ unclear' };
+    return map[trend] || trend || '';
+}
+
+// Arc cards (relationships)
+const relArcHtml = Object.values(relationshipArcs).length
+    ? Object.values(relationshipArcs).map(arc => `
+    <div class="rel-arc-card">
+        <div class="rel-arc-header">
+            <span class="rel-arc-name">${escHtml(arc.name || '')}</span>
+            <span class="rel-arc-type ${arc.type === 'romantic' ? 'romantic' : 'friendship'}">${escHtml(arc.type || '')}</span>
+            <span class="rel-arc-period">${escHtml(arc.period || '')}</span>
+            <span class="rel-arc-weight" style="color:${weightColor(arc.emotional_weight)}">${escHtml(arc.emotional_weight || '')}</span>
+        </div>
+        <div class="rel-arc-summary">${escHtml(arc.arc_summary || '')}</div>
+        ${(arc.key_phases || []).length ? `<div class="rel-arc-phases">${arc.key_phases.map(p => `<span class="rel-phase-chip">${escHtml(p)}</span>`).join('')}</div>` : ''}
+        ${arc.status_at_end ? `<div class="rel-arc-end">At end: <em>${escHtml(arc.status_at_end)}</em></div>` : ''}
+    </div>`).join('\n')
+    : '<div class="empty-state">No multi-month relationship arcs found yet. Run the pipeline to extract.</div>';
+
+// Monthly relationship timeline
+const relMonthsSorted = Object.keys(relationshipMonthly).sort();
+const relMonthlyHtml = relMonthsSorted.length
+    ? relMonthsSorted.filter(m => {
+        const d = relationshipMonthly[m];
+        return (d.romantic || []).length > 0 || (d.friendships || []).length > 0 || d.notes;
+    }).map(month => {
+        const d = relationshipMonthly[month];
+        const romanticItems = (d.romantic || []).map(r => `
+            <div class="rel-month-person romantic">
+                <span class="rmp-name">${escHtml(r.name || 'unnamed')}</span>
+                <span class="rmp-tag">${escHtml(r.type || '')}</span>
+                <span class="rmp-tag dim">${escHtml(r.status || '')}</span>
+                ${r.mood ? `<span class="rmp-mood">${escHtml(r.mood)}</span>` : ''}
+                ${r.notes ? `<div class="rmp-notes">${escHtml(r.notes)}</div>` : ''}
+            </div>`).join('');
+        const friendItems = (d.friendships || []).map(f => `
+            <div class="rel-month-person friendship">
+                <span class="rmp-name">${escHtml(f.name || '')}</span>
+                <span class="rmp-tag">${escHtml(f.quality || '')}</span>
+                ${f.notes ? `<div class="rmp-notes">${escHtml(f.notes)}</div>` : ''}
+            </div>`).join('');
+        return `
+        <div class="rel-month-row">
+            <div class="rel-month-label">${escHtml(month)}</div>
+            <div class="rel-month-content">
+                ${romanticItems}${friendItems}
+                ${d.notes ? `<div class="rel-month-note">${escHtml(d.notes)}</div>` : ''}
+            </div>
+        </div>`;
+    }).join('\n')
+    : '<div class="empty-state">No relationship data yet.</div>';
+
+// Substance arc cards
+const subArcHtml = Object.values(substanceArcs).length
+    ? Object.values(substanceArcs).map(arc => `
+    <div class="sub-arc-card">
+        <div class="sub-arc-header">
+            <span class="sub-arc-name">${escHtml(arc.substance || '')}</span>
+            <span class="sub-arc-period">${escHtml(arc.period || '')}</span>
+            <span class="sub-arc-trend">${trendBadge(arc.trend)}</span>
+            <span class="sub-arc-concern" style="color:${concernColor(arc.concern_level)}">concern: ${escHtml(arc.concern_level || 'none')}</span>
+        </div>
+        <div class="sub-arc-context">context: <em>${escHtml(arc.dominant_context || '')}</em></div>
+        <div class="sub-arc-summary">${escHtml(arc.arc_summary || '')}</div>
+        ${arc.notes ? `<div class="sub-arc-notes">${escHtml(arc.notes)}</div>` : ''}
+    </div>`).join('\n')
+    : '<div class="empty-state">No multi-month substance arcs found yet.</div>';
+
+// Monthly substance timeline
+const subMonthsSorted = Object.keys(substanceMonthly).sort();
+const subMonthlyHtml = subMonthsSorted.length
+    ? subMonthsSorted.filter(m => (substanceMonthly[m].substances || []).length > 0 || substanceMonthly[m].notes)
+        .map(month => {
+            const d = substanceMonthly[month];
+            const items = (d.substances || []).map(s => `
+                <div class="sub-month-item">
+                    <span class="smi-name">${escHtml(s.substance || '')}</span>
+                    <span class="smi-tag">${escHtml(s.context || '')}</span>
+                    <span class="smi-tag dim">${escHtml(s.frequency || '')}</span>
+                    ${s.tone ? `<span class="smi-tone">${escHtml(s.tone)}</span>` : ''}
+                    ${s.notes ? `<div class="smi-notes">${escHtml(s.notes)}</div>` : ''}
+                </div>`).join('');
+            return `
+        <div class="sub-month-row">
+            <div class="sub-month-label">${escHtml(month)}</div>
+            <div class="sub-month-content">
+                ${items}
+                ${d.notes ? `<div class="sub-month-note">${escHtml(d.notes)}</div>` : ''}
+            </div>
+        </div>`;
+        }).join('\n')
+    : '<div class="empty-state">No substance data yet.</div>';
 
 // Trajectory phases for visual arc
 const phases = [
@@ -687,6 +802,198 @@ footer {
     color: var(--text-dim);
     margin-top: 40px;
 }
+
+/* Relationships & Substances */
+.rel-arc-card, .sub-arc-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 12px;
+}
+.rel-arc-card { border-left: 4px solid #e5c07b; }
+.sub-arc-card { border-left: 4px solid #c678dd; }
+.rel-arc-header, .sub-arc-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+.rel-arc-name, .sub-arc-name {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-bright);
+}
+.rel-arc-type {
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.rel-arc-type.romantic { background: rgba(229,192,123,0.15); color: #e5c07b; }
+.rel-arc-type.friendship { background: rgba(122,162,247,0.15); color: #7aa2f7; }
+.rel-arc-period, .sub-arc-period {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    font-style: italic;
+}
+.rel-arc-weight {
+    font-size: 0.78rem;
+    font-weight: 600;
+    margin-left: auto;
+}
+.rel-arc-summary, .sub-arc-summary {
+    font-size: 0.9rem;
+    line-height: 1.7;
+    color: var(--text);
+    margin-bottom: 10px;
+}
+.rel-arc-phases {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.rel-phase-chip {
+    font-size: 0.75rem;
+    padding: 3px 10px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-dim);
+}
+.rel-arc-end, .sub-arc-notes {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    font-style: italic;
+    margin-top: 6px;
+}
+.sub-arc-trend {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+}
+.sub-arc-concern {
+    font-size: 0.78rem;
+    font-weight: 600;
+    margin-left: auto;
+}
+.sub-arc-context {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+}
+/* Monthly timelines */
+.rel-month-row, .sub-month-row {
+    display: flex;
+    gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    align-items: flex-start;
+}
+.rel-month-row:last-child, .sub-month-row:last-child { border-bottom: none; }
+.rel-month-label, .sub-month-label {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--orange);
+    min-width: 72px;
+    padding-top: 2px;
+}
+.rel-month-content, .sub-month-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.rel-month-person {
+    background: var(--surface2);
+    border-radius: 6px;
+    padding: 8px 12px;
+    border-left: 3px solid transparent;
+}
+.rel-month-person.romantic { border-left-color: #e5c07b; }
+.rel-month-person.friendship { border-left-color: #7aa2f7; }
+.rmp-name {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-right: 6px;
+}
+.rmp-tag {
+    font-size: 0.72rem;
+    padding: 1px 7px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 8px;
+    color: var(--text-dim);
+    margin-right: 4px;
+}
+.rmp-tag.dim { opacity: 0.7; }
+.rmp-mood {
+    font-size: 0.78rem;
+    color: #e5c07b;
+    font-style: italic;
+    margin-left: 4px;
+}
+.rmp-notes, .smi-notes {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+    margin-top: 4px;
+}
+.rel-month-note, .sub-month-note {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    font-style: italic;
+    padding: 6px 10px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 4px;
+}
+.sub-month-item {
+    background: var(--surface2);
+    border-radius: 6px;
+    padding: 8px 12px;
+    border-left: 3px solid #c678dd;
+}
+.smi-name {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-right: 6px;
+}
+.smi-tag {
+    font-size: 0.72rem;
+    padding: 1px 7px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 8px;
+    color: var(--text-dim);
+    margin-right: 4px;
+}
+.smi-tag.dim { opacity: 0.7; }
+.smi-tone {
+    font-size: 0.78rem;
+    color: #c678dd;
+    font-style: italic;
+    margin-left: 4px;
+}
+.section-subtitle {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin: 24px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+.empty-state {
+    color: var(--text-dim);
+    font-style: italic;
+    padding: 20px;
+    text-align: center;
+    background: var(--surface);
+    border-radius: 8px;
+    border: 1px dashed var(--border);
+}
 </style>
 </head>
 <body>
@@ -700,6 +1007,7 @@ footer {
     <button class="nav-btn active" onclick="showSection('trajectory')">Overall Trajectory</button>
     <button class="nav-btn" onclick="showSection('years')">Year by Year</button>
     <button class="nav-btn" onclick="showSection('domains')">Life Domains</button>
+    <button class="nav-btn" onclick="showSection('relationships')">Relationships & Substances</button>
     <button class="nav-btn" onclick="showSection('patterns')">Patterns</button>
     <button class="nav-btn" onclick="showSection('turning')">Turning Points</button>
     <button class="nav-btn" onclick="showSection('strengths')">Strengths & Risks</button>
@@ -739,6 +1047,23 @@ footer {
     <div class="domain-year-cards">
         ${domainYearRowsHtml}
     </div>
+</section>
+
+<section class="section" id="sec-relationships">
+    <div class="section-title">Relationships & Substances</div>
+    <div class="section-desc">Tracked month by month across all data sources, with synthesized arcs for people and substances that appear across multiple months.</div>
+
+    <div class="section-subtitle">Relationship Arcs</div>
+    ${relArcHtml}
+
+    <div class="section-subtitle">Monthly Relationship Log</div>
+    <div>${relMonthlyHtml}</div>
+
+    <div class="section-subtitle">Substance Arcs</div>
+    ${subArcHtml}
+
+    <div class="section-subtitle">Monthly Substance Log</div>
+    <div>${subMonthlyHtml}</div>
 </section>
 
 <section class="section" id="sec-patterns">

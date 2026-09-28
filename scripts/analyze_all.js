@@ -468,6 +468,206 @@ Return [] if there are no clearly significant life events. Do not invent events 
     return parseJSON(response, []);
 }
 
+async function extractMonthRelationships(month, messages) {
+    const richMessages = messages.filter(m =>
+        ['anthropic', 'openai', 'gemini', 'journal', 'email_sent'].includes(m.source)
+    );
+    if (richMessages.length === 0) return { romantic: [], friendships: [], notes: '' };
+
+    const sample = richMessages
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 25)
+        .map(m => `[${m.source}] ${m.text.substring(0, 250).replace(/\n/g, ' ')}`);
+
+    const prompt = `You are reading a person's real private data from ${month}: AI conversations, journal entries, and sent emails.
+
+Sample entries:
+${sample.map(m => `- "${m}"`).join('\n')}
+
+Extract ONLY what is directly evidenced in the data about the person's actual relationships this month. Use real names when they appear.
+
+Return JSON:
+{
+  "romantic": [
+    {
+      "name": "person's name or 'unnamed'",
+      "type": "casual|dating|long-term|ex|crush|unclear",
+      "status": "active|ended|complicated|rekindling|mourning|unclear",
+      "mood": "brief phrase about emotional tone, e.g. 'tender, uncertain' or 'grief, longing'",
+      "notes": "1-2 sentences of what is evidenced — specific, not inferred beyond the data"
+    }
+  ],
+  "friendships": [
+    {
+      "name": "person's name",
+      "quality": "close|distant|conflicted|new|rekindling|unclear",
+      "notes": "1-2 sentences"
+    }
+  ],
+  "notes": "any other relational context worth noting (e.g. isolation, longing for connection, social contraction)"
+}
+
+Return empty arrays if nothing is clearly evidenced. Do not invent or infer beyond what is in the data.`;
+
+    const response = await callClaude(prompt, 1024);
+    return parseJSON(response, { romantic: [], friendships: [], notes: '' });
+}
+
+async function extractMonthSubstances(month, messages) {
+    const richMessages = messages.filter(m =>
+        ['anthropic', 'openai', 'gemini', 'journal', 'email_sent'].includes(m.source)
+    );
+    if (richMessages.length === 0) return { substances: [], notes: '' };
+
+    const sample = richMessages
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 25)
+        .map(m => `[${m.source}] ${m.text.substring(0, 250).replace(/\n/g, ' ')}`);
+
+    const prompt = `You are reading a person's real private data from ${month}: AI conversations, journal entries, and sent emails.
+
+Sample entries:
+${sample.map(m => `- "${m}"`).join('\n')}
+
+Extract ONLY what is directly evidenced about substance use — alcohol, cannabis, psychedelics (MDMA, psilocybin, LSD, ketamine, etc.), stimulants, medication misuse, or anything else psychoactive. Include therapeutic/ceremonial use (e.g. MDMA therapy, ayahuasca retreat) as well as recreational or self-medicating use.
+
+Return JSON:
+{
+  "substances": [
+    {
+      "substance": "name (e.g. 'cannabis', 'MDMA', 'alcohol', 'psilocybin')",
+      "context": "therapeutic|recreational|self-medicating|ceremonial|research/interest|unclear",
+      "frequency": "one-off|occasional|regular|unclear",
+      "tone": "brief phrase — e.g. 'exploratory, positive', 'numbing, concerning', 'intentional, processed'",
+      "notes": "1-2 sentences of what is evidenced"
+    }
+  ],
+  "notes": "any broader pattern — e.g. increase in use during stress, interest without action, abstinence noted"
+}
+
+Return empty array if nothing is evidenced. Do not invent. Research/curiosity counts as 'research/interest' context.`;
+
+    const response = await callClaude(prompt, 1024);
+    return parseJSON(response, { substances: [], notes: '' });
+}
+
+async function synthesizeRelationshipArcs(relationshipMonthly) {
+    // Collect all named people across months
+    const peopleMonths = {}; // name -> [{month, data}]
+
+    for (const [month, data] of Object.entries(relationshipMonthly)) {
+        for (const r of (data.romantic || [])) {
+            if (!r.name || r.name === 'unnamed') continue;
+            const key = r.name.toLowerCase();
+            if (!peopleMonths[key]) peopleMonths[key] = { name: r.name, type: 'romantic', entries: [] };
+            peopleMonths[key].entries.push({ month, ...r });
+        }
+        for (const f of (data.friendships || [])) {
+            if (!f.name) continue;
+            const key = f.name.toLowerCase();
+            if (!peopleMonths[key]) peopleMonths[key] = { name: f.name, type: 'friendship', entries: [] };
+            peopleMonths[key].entries.push({ month, ...f });
+        }
+    }
+
+    // Only synthesize people with 2+ months of data
+    const eligible = Object.values(peopleMonths).filter(p => p.entries.length >= 2);
+    if (eligible.length === 0) return {};
+
+    const arcs = {};
+    const tasks = eligible.map(person => async () => {
+        const entriesSorted = person.entries.sort((a, b) => a.month.localeCompare(b.month));
+        const firstMonth = entriesSorted[0].month;
+        const lastMonth = entriesSorted[entriesSorted.length - 1].month;
+        const entryLines = entriesSorted.map(e =>
+            `  ${e.month}: ${e.notes || ''} [${e.status || e.quality || ''}] ${e.mood || ''}`
+        ).join('\n');
+
+        const prompt = `Synthesize the arc of this relationship across ${entriesSorted.length} months (${firstMonth} to ${lastMonth}).
+
+Person: ${person.name} (${person.type})
+Monthly data:
+${entryLines}
+
+Return JSON:
+{
+  "name": "${person.name}",
+  "type": "${person.type}",
+  "period": "${firstMonth} to ${lastMonth}",
+  "arc_summary": "3-4 sentences describing the arc of this relationship — what it was, how it evolved, what it meant emotionally",
+  "key_phases": ["brief phase description with approximate month, e.g. 'early 2023: intense connection'"],
+  "emotional_weight": "light|moderate|significant|heavy",
+  "status_at_end": "brief phrase describing where this relationship stood at the last data point"
+}`;
+
+        const response = await callClaude(prompt, 800);
+        const result = parseJSON(response, null);
+        if (result) {
+            console.log(`  ✓ arc: ${person.name}`);
+            arcs[person.name.toLowerCase()] = result;
+        }
+        return result;
+    });
+
+    await runParallel(tasks, PARALLEL_LIMIT);
+    return arcs;
+}
+
+async function synthesizeSubstanceArcs(substanceMonthly) {
+    // Collect per-substance monthly entries
+    const substanceMonths = {}; // substance -> [{month, data}]
+
+    for (const [month, data] of Object.entries(substanceMonthly)) {
+        for (const s of (data.substances || [])) {
+            if (!s.substance) continue;
+            const key = s.substance.toLowerCase();
+            if (!substanceMonths[key]) substanceMonths[key] = { name: s.substance, entries: [] };
+            substanceMonths[key].entries.push({ month, ...s });
+        }
+    }
+
+    const eligible = Object.values(substanceMonths).filter(p => p.entries.length >= 2);
+    if (eligible.length === 0) return {};
+
+    const arcs = {};
+    const tasks = eligible.map(substance => async () => {
+        const entriesSorted = substance.entries.sort((a, b) => a.month.localeCompare(b.month));
+        const firstMonth = entriesSorted[0].month;
+        const lastMonth = entriesSorted[entriesSorted.length - 1].month;
+        const entryLines = entriesSorted.map(e =>
+            `  ${e.month}: ${e.notes || ''} [context: ${e.context || '?'}] [freq: ${e.frequency || '?'}] tone: ${e.tone || ''}`
+        ).join('\n');
+
+        const prompt = `Synthesize the pattern of use for this substance across ${entriesSorted.length} months (${firstMonth} to ${lastMonth}).
+
+Substance: ${substance.name}
+Monthly data:
+${entryLines}
+
+Return JSON:
+{
+  "substance": "${substance.name}",
+  "period": "${firstMonth} to ${lastMonth}",
+  "arc_summary": "2-3 sentences describing the pattern — how use evolved, what contexts it appeared in, any shift over time",
+  "dominant_context": "therapeutic|recreational|self-medicating|ceremonial|research|mixed",
+  "trend": "increasing|decreasing|stable|episodic|unclear",
+  "concern_level": "none|low|moderate|high",
+  "notes": "anything notable about the relationship with this substance across time"
+}`;
+
+        const response = await callClaude(prompt, 600);
+        const result = parseJSON(response, null);
+        if (result) {
+            console.log(`  ✓ substance arc: ${substance.name}`);
+            arcs[substance.name.toLowerCase()] = result;
+        }
+        return result;
+    });
+
+    await runParallel(tasks, PARALLEL_LIMIT);
+    return arcs;
+}
+
 async function generatePersonInsight(name, data) {
     const prompt = `Analyze relationship with "${name}":
 
@@ -565,7 +765,8 @@ function loadPeopleFromDashboard() {
 // ============================================
 
 async function processMonth(month, messages, existingData) {
-    if (!FORCE && existingData.categories?.[month] && existingData.victim?.[month]) {
+    if (!FORCE && existingData.categories?.[month] && existingData.victim?.[month] &&
+        existingData.relationships?.[month] && existingData.substances?.[month]) {
         return { month, skipped: true };
     }
 
@@ -574,6 +775,8 @@ async function processMonth(month, messages, existingData) {
         categories: {},
         victim: null,
         insight: null,
+        relationships: null,
+        substances: null,
         success: true
     };
 
@@ -607,11 +810,16 @@ async function processMonth(month, messages, existingData) {
             sourceCounts[m.source] = (sourceCounts[m.source] || 0) + 1;
         }
 
-        result.insight = await generateMonthlyInsight(month, messages, {
-            total: messages.length,
-            sources: sourceCounts,
-            categories: result.categories
-        });
+        // Run insight + relationship + substance extraction in parallel
+        [result.insight, result.relationships, result.substances] = await Promise.all([
+            generateMonthlyInsight(month, messages, {
+                total: messages.length,
+                sources: sourceCounts,
+                categories: result.categories
+            }),
+            extractMonthRelationships(month, messages),
+            extractMonthSubstances(month, messages)
+        ]);
 
         console.log(`  ✓ ${month}`);
     } catch (error) {
@@ -666,7 +874,9 @@ async function main() {
     const existingData = {
         categories: {},
         victim: {},
-        insights: {}
+        insights: {},
+        relationships: {},
+        substances: {}
     };
 
     if (fs.existsSync(OUTPUT.categories)) {
@@ -677,10 +887,16 @@ async function main() {
 
     // Load existing yearly summaries (don't re-run unless --force)
     let existingYearlySummaries = {};
+    let existingRelationshipArcs = {};
+    let existingSubstanceArcs = {};
     if (fs.existsSync(OUTPUT.insights)) {
         try {
             const d = JSON.parse(fs.readFileSync(OUTPUT.insights, 'utf8'));
             existingYearlySummaries = d.yearly_summaries || {};
+            existingRelationshipArcs = d.relationship_arcs || {};
+            existingSubstanceArcs = d.substance_arcs || {};
+            existingData.relationships = d.relationship_monthly || {};
+            existingData.substances = d.substance_monthly || {};
         } catch (e) { /* ignore */ }
     }
 
@@ -737,6 +953,8 @@ async function main() {
         categories: { ...existingData.categories },
         victim_analysis: { ...existingData.victim },
         monthly: {},
+        relationship_monthly: { ...existingData.relationships },
+        substance_monthly: { ...existingData.substances },
         events: existingEvents,
         category_totals: {},
         yearly_summaries: {},
@@ -752,7 +970,7 @@ async function main() {
             if (existingData.victim[result.month]) {
                 aggregated.victim_analysis[result.month] = existingData.victim[result.month];
             }
-            // Load existing monthly insight for skipped months
+            // relationship/substance already merged above from existingData
             if (fs.existsSync(OUTPUT.insights)) {
                 try {
                     const d = JSON.parse(fs.readFileSync(OUTPUT.insights, 'utf8'));
@@ -767,6 +985,8 @@ async function main() {
             aggregated.categories[result.month] = result.categories;
             aggregated.victim_analysis[result.month] = result.victim;
             aggregated.monthly[result.month] = result.insight;
+            if (result.relationships) aggregated.relationship_monthly[result.month] = result.relationships;
+            if (result.substances) aggregated.substance_monthly[result.month] = result.substances;
         }
     }
 
@@ -820,6 +1040,20 @@ async function main() {
     }
 
     console.log(`\n  Generated ${Object.keys(aggregated.yearly_summaries).length} yearly summaries\n`);
+
+    // ========== PHASE 3b: Relationship & Substance Arcs ==========
+    console.log('Phase 3b: Relationship & Substance Arc Synthesis');
+    console.log('─'.repeat(40));
+
+    const [relationshipArcs, substanceArcs] = await Promise.all([
+        synthesizeRelationshipArcs(aggregated.relationship_monthly),
+        synthesizeSubstanceArcs(aggregated.substance_monthly)
+    ]);
+
+    // Merge with existing arcs (new synthesis wins)
+    aggregated.relationship_arcs = { ...existingRelationshipArcs, ...relationshipArcs };
+    aggregated.substance_arcs = { ...existingSubstanceArcs, ...substanceArcs };
+    console.log(`\n  Relationship arcs: ${Object.keys(aggregated.relationship_arcs).length}, Substance arcs: ${Object.keys(aggregated.substance_arcs).length}\n`);
 
     // ========== PHASE 4: People Analysis (Parallel) ==========
     console.log('Phase 4: People Analysis (parallel)');
@@ -889,6 +1123,10 @@ async function main() {
             insights: overallInsights,
             monthly: aggregated.monthly,
             yearly_summaries: aggregated.yearly_summaries,
+            relationship_monthly: aggregated.relationship_monthly,
+            relationship_arcs: aggregated.relationship_arcs,
+            substance_monthly: aggregated.substance_monthly,
+            substance_arcs: aggregated.substance_arcs,
             events: aggregated.events.sort((a, b) => a.date?.localeCompare(b.date)),
             generated_at: new Date().toISOString()
         };
