@@ -3499,6 +3499,51 @@ Where decay_factor = 1 - (current_score / 100)
                 `;
             }
 
+            // Domain Arcs
+            const domainArcs = data.domain_arcs || {};
+            const domainYears = Object.keys(domainArcs).sort();
+            if (domainYears.length > 0) {
+                const domainColors = { self: '#7aa2f7', friends: '#e0af68', work: '#56b6c2', school: '#9ece6a' };
+                const domainLabels = { self: 'Self', friends: 'Friends', work: 'Work', school: 'School' };
+
+                // Mini SVG sparklines for each domain
+                function domainSparkline(domain, color) {
+                    const scores = domainYears.map(y => domainArcs[y]?.[domain]?.score ?? null);
+                    const valid = scores.filter(s => s != null);
+                    if (valid.length < 2) return '';
+                    const W = 160, H = 36, pad = 4;
+                    const xs = scores.map((_, i) => pad + (i / (scores.length - 1)) * (W - 2*pad));
+                    const ys = s => s == null ? null : pad + (1 - s / 10) * (H - 2*pad);
+                    const pts = scores.map((s, i) => s != null ? `${xs[i]},${ys(s)}` : null).filter(Boolean);
+                    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;display:block;">
+                        <polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="2" opacity="0.9"/>
+                        ${scores.map((s, i) => s != null ? `<circle cx="${xs[i]}" cy="${ys(s)}" r="3" fill="${color}"/>` : '').join('')}
+                    </svg>`;
+                }
+
+                html += `
+                    <div style="background: var(--bg-dark); border-radius: 12px; padding: 1.25rem; grid-column: 1 / -1;">
+                        <h4 style="color: var(--accent-blue); margin-bottom: 1rem; font-size: 0.95rem;">Life Domains</h4>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                            ${Object.entries(domainColors).map(([domain, color]) => {
+                                const scores = domainYears.map(y => domainArcs[y]?.[domain]?.score).filter(s => s != null);
+                                const latest = domainYears.slice().reverse().find(y => domainArcs[y]?.[domain]?.score != null);
+                                const latestScore = latest ? domainArcs[latest][domain].score : null;
+                                const latestTrend = latest ? domainArcs[latest][domain].trend : null;
+                                const trendSymbol = latestTrend === 'improving' ? '↑' : latestTrend === 'declining' ? '↓' : '→';
+                                const trendColor = latestTrend === 'improving' ? 'var(--accent-green)' : latestTrend === 'declining' ? 'var(--accent-red)' : 'var(--text-muted)';
+                                return `<div style="background: var(--bg-card); border-radius: 8px; padding: 0.75rem; border-top: 2px solid ${color};">
+                                    <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: ${color}; font-weight: 700; margin-bottom: 0.4rem;">${domainLabels[domain]}</div>
+                                    ${latestScore != null ? `<div style="font-size: 1.4rem; font-weight: 700; color: var(--text-primary);">${latestScore}<span style="font-size: 0.75rem; color: var(--text-muted);">/10</span> <span style="font-size: 0.85rem; color: ${trendColor};">${trendSymbol}</span></div>` : ''}
+                                    ${domainSparkline(domain, color)}
+                                </div>`;
+                            }).join('')}
+                        </div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">Click a year in "Year by Year" to see domain details for that year.</div>
+                    </div>
+                `;
+            }
+
             // Patterns
             if (insights.patterns?.length) {
                 html += `
@@ -3574,18 +3619,40 @@ Where decay_factor = 1 - (current_score / 100)
             // Initialize yearly summaries tab
             if (yearKeys.length > 0) {
                 window._yearlySummariesData = yearlySummaries;
+                window._domainArcsData = data.domain_arcs || {};
                 showYearSummary(yearKeys[0]);
             }
         }
 
         function showYearSummary(year) {
             const data = window._yearlySummariesData || {};
+            const domainArcs = window._domainArcsData || {};
             const d = data[year];
+            const da = domainArcs[year];
             const content = document.getElementById('yearSummaryContent');
             if (!content || !d) return;
 
             const themes = (d.major_themes || []).map(t => `<span style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.5rem; font-size: 0.75rem; color: var(--accent-purple);">${t}</span>`).join(' ');
             const turning = (d.key_turning_points || []).map(t => `<li>${t}</li>`).join('');
+
+            const domainColors = { self: '#7aa2f7', friends: '#e0af68', work: '#56b6c2', school: '#9ece6a' };
+            const domainLabels = { self: 'Self', friends: 'Friends', work: 'Work', school: 'School' };
+            let domainHtml = '';
+            if (da) {
+                domainHtml = `<div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.75rem; margin-bottom:0.25rem;">
+                    ${Object.entries(domainColors).map(([dom, color]) => {
+                        const ddata = da[dom];
+                        if (!ddata || ddata.score == null) return '';
+                        const trendSym = ddata.trend === 'improving' ? '↑' : ddata.trend === 'declining' ? '↓' : '→';
+                        const trendCol = ddata.trend === 'improving' ? 'var(--accent-green)' : ddata.trend === 'declining' ? 'var(--accent-red)' : 'var(--text-muted)';
+                        return `<div style="background: var(--bg-card); border-radius: 6px; padding: 0.4rem 0.75rem; border-top: 2px solid ${color}; min-width: 100px;">
+                            <div style="font-size: 0.65rem; text-transform: uppercase; color: ${color}; font-weight: 700;">${domainLabels[dom]}</div>
+                            <div style="font-size: 1rem; font-weight: 700; color: var(--text-primary);">${ddata.score}<span style="font-size: 0.7rem; color: var(--text-muted);">/10</span> <span style="color: ${trendCol}; font-size: 0.8rem;">${trendSym}</span></div>
+                            <div style="font-size: 0.7rem; color: var(--text-muted); line-height: 1.4; margin-top: 2px;">${(ddata.summary || '').slice(0, 80)}${(ddata.summary || '').length > 80 ? '…' : ''}</div>
+                        </div>`;
+                    }).join('')}
+                </div>`;
+            }
 
             content.innerHTML = `
                 ${d.year_in_one_sentence ? `<p style="color: var(--accent-orange); font-style: italic; margin-bottom: 0.75rem;">"${d.year_in_one_sentence}"</p>` : ''}
@@ -3593,6 +3660,7 @@ Where decay_factor = 1 - (current_score / 100)
                 ${d.emotional_arc ? `<p style="color: var(--text-muted); margin-bottom: 0.5rem;"><strong style="color: var(--text-secondary);">Emotional Arc:</strong> ${d.emotional_arc}</p>` : ''}
                 ${themes ? `<div style="margin-bottom: 0.5rem;">${themes}</div>` : ''}
                 ${turning ? `<ul style="margin-top: 0.5rem; padding-left: 1.25rem;">${turning}</ul>` : ''}
+                ${domainHtml}
                 ${d.message_count ? `<p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem;">${d.message_count.toLocaleString()} data points</p>` : ''}
             `;
 

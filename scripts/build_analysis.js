@@ -18,6 +18,7 @@ const insights = JSON.parse(fs.readFileSync(insightsPath, 'utf8'));
 const yearlySummaries = insights.yearly_summaries || {};
 const overall = insights.insights || {};
 const events = insights.events || [];
+const domainArcs = insights.domain_arcs || {};
 
 const yearKeys = Object.keys(yearlySummaries).sort();
 
@@ -92,6 +93,93 @@ const yearCardsHtml = yearKeys.map(year => {
             <div class="year-narrative">${escHtml(s.narrative || '').replace(/\n\n/g, '</p><p>')}</div>
             ${s.emotional_arc ? `<div class="year-section-label">Emotional Arc</div><div class="year-arc">${escHtml(s.emotional_arc)}</div>` : ''}
             ${turning.length ? `<div class="year-section-label">Turning Points</div><ul class="turning-list">${turning.map(t=>`<li>${escHtml(t)}</li>`).join('')}</ul>` : ''}
+        </div>
+    </div>`;
+}).join('\n');
+
+// Build domain arcs section
+const domainYears = yearKeys.filter(y => domainArcs[y]);
+const DOMAIN_COLORS = { self: '#7aa2f7', friends: '#e0af68', work: '#56b6c2', school: '#9ece6a' };
+const DOMAIN_LABELS = { self: 'Relationship with Self', friends: 'Social / Friends', work: 'Work / Career', school: 'School / Study' };
+
+// SVG line chart for domain scores over time
+function buildDomainSvg() {
+    const W = 800, H = 220, PL = 40, PR = 20, PT = 20, PB = 40;
+    const w = W - PL - PR, h = H - PT - PB;
+    const xs = domainYears.map((_, i) => PL + (i / (domainYears.length - 1)) * w);
+    const ys = score => PT + (1 - (score || 0) / 10) * h;
+
+    let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;display:block;">`;
+    // Grid lines
+    for (let v = 2; v <= 10; v += 2) {
+        const y = ys(v);
+        svg += `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="#3b4261" stroke-width="1"/>`;
+        svg += `<text x="${PL-6}" y="${y+4}" font-size="10" fill="#7982a9" text-anchor="end">${v}</text>`;
+    }
+    // X labels
+    domainYears.forEach((yr, i) => {
+        svg += `<text x="${xs[i]}" y="${H-6}" font-size="10" fill="#7982a9" text-anchor="middle">${yr}</text>`;
+    });
+    // Lines per domain
+    for (const [domain, color] of Object.entries(DOMAIN_COLORS)) {
+        const pts = domainYears.map((yr, i) => {
+            const score = domainArcs[yr]?.[domain]?.score;
+            return score != null ? `${xs[i]},${ys(score)}` : null;
+        }).filter(Boolean);
+        if (pts.length > 1) {
+            svg += `<polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" opacity="0.85"/>`;
+        }
+        domainYears.forEach((yr, i) => {
+            const score = domainArcs[yr]?.[domain]?.score;
+            if (score != null) svg += `<circle cx="${xs[i]}" cy="${ys(score)}" r="4" fill="${color}" opacity="0.9"/>`;
+        });
+    }
+    // Legend
+    let lx = PL;
+    for (const [domain, color] of Object.entries(DOMAIN_COLORS)) {
+        svg += `<rect x="${lx}" y="6" width="12" height="6" rx="3" fill="${color}"/>`;
+        svg += `<text x="${lx+16}" y="14" font-size="10" fill="#c0caf5">${domain}</text>`;
+        lx += 90;
+    }
+    svg += `</svg>`;
+    return svg;
+}
+
+function trendArrow(trend) {
+    if (trend === 'improving') return '<span class="domain-detail-trend trend-improving">↑ improving</span>';
+    if (trend === 'declining') return '<span class="domain-detail-trend trend-declining">↓ declining</span>';
+    if (trend === 'stable') return '<span class="domain-detail-trend trend-stable">→ stable</span>';
+    return '<span class="domain-detail-trend trend-unclear">~ unclear</span>';
+}
+
+const domainYearRowsHtml = domainYears.map(year => {
+    const da = domainArcs[year];
+    const domains = ['self', 'friends', 'work', 'school'];
+    const bars = domains.map(d => {
+        const score = da[d]?.score;
+        if (score == null) return '';
+        return `<div class="domain-bar-group">
+            <div class="domain-bar-label">${d} ${score}/10</div>
+            <div class="domain-bar-track"><div class="domain-bar-fill domain-bar-${d}" style="width:${score*10}%"></div></div>
+        </div>`;
+    }).join('');
+    const details = domains.map(d => {
+        const ddata = da[d];
+        if (!ddata || ddata.score == null) return '';
+        return `<div class="domain-detail-card">
+            <div class="domain-detail-name ${d}">${DOMAIN_LABELS[d]}</div>
+            <div class="domain-detail-score">${ddata.score}/10</div>
+            ${trendArrow(ddata.trend)}
+            <div class="domain-detail-summary">${escHtml(ddata.summary || '')}</div>
+        </div>`;
+    }).join('');
+    return `<div class="domain-year-row" id="drow-${year}" onclick="toggleDomainRow('${year}')">
+        <div class="domain-year-label">
+            <span class="domain-year-num">${year}</span>
+            <div class="domain-bars">${bars}</div>
+        </div>
+        <div class="domain-year-detail" id="ddetail-${year}">
+            <div class="domain-detail-grid">${details}</div>
         </div>
     </div>`;
 }).join('\n');
@@ -499,6 +587,97 @@ nav {
 }
 .turning-desc { font-size: 0.9rem; line-height: 1.7; color: var(--text); }
 
+/* Domain arcs */
+.domain-chart-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px 20px;
+    margin-bottom: 28px;
+    overflow-x: auto;
+}
+.domain-chart-title {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    font-weight: 600;
+    margin-bottom: 20px;
+}
+.domain-svg-wrap { min-width: 600px; }
+.domain-year-cards { display: flex; flex-direction: column; gap: 10px; }
+.domain-year-row {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+.domain-year-row:hover { border-color: var(--accent); }
+.domain-year-row.expanded .domain-year-detail { display: block; }
+.domain-year-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+.domain-year-num {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-bright);
+    min-width: 40px;
+}
+.domain-bars { display: flex; gap: 8px; flex: 1; align-items: center; flex-wrap: wrap; }
+.domain-bar-group { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 70px; }
+.domain-bar-label { font-size: 0.68rem; color: var(--text-dim); }
+.domain-bar-track {
+    height: 8px;
+    background: var(--surface2);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.domain-bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
+.domain-bar-self { background: #7aa2f7; }
+.domain-bar-friends { background: #e0af68; }
+.domain-bar-work { background: #56b6c2; }
+.domain-bar-school { background: #9ece6a; }
+.domain-year-detail {
+    display: none;
+    margin-top: 10px;
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+    display: none;
+}
+.domain-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 10px;
+}
+.domain-detail-card {
+    background: var(--surface2);
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+.domain-detail-name {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+.domain-detail-name.self { color: #7aa2f7; }
+.domain-detail-name.friends { color: #e0af68; }
+.domain-detail-name.work { color: #56b6c2; }
+.domain-detail-name.school { color: #9ece6a; }
+.domain-detail-score { font-size: 1.1rem; font-weight: 700; color: var(--text-bright); margin-bottom: 4px; }
+.domain-detail-trend { font-size: 0.72rem; margin-bottom: 4px; }
+.trend-improving { color: #9ece6a; }
+.trend-declining { color: #f7768e; }
+.trend-stable { color: var(--text-dim); }
+.trend-unclear { color: var(--text-dim); }
+.domain-detail-summary { font-size: 0.8rem; color: var(--text-dim); line-height: 1.5; }
+
 /* Footer */
 footer {
     border-top: 1px solid var(--border);
@@ -520,6 +699,7 @@ footer {
 <nav>
     <button class="nav-btn active" onclick="showSection('trajectory')">Overall Trajectory</button>
     <button class="nav-btn" onclick="showSection('years')">Year by Year</button>
+    <button class="nav-btn" onclick="showSection('domains')">Life Domains</button>
     <button class="nav-btn" onclick="showSection('patterns')">Patterns</button>
     <button class="nav-btn" onclick="showSection('turning')">Turning Points</button>
     <button class="nav-btn" onclick="showSection('strengths')">Strengths & Risks</button>
@@ -546,6 +726,18 @@ footer {
     <div class="section-desc">Click any year to expand the full narrative. Each analysis is LLM-generated from that year's actual data.</div>
     <div class="years-grid">
         ${yearCardsHtml}
+    </div>
+</section>
+
+<section class="section" id="sec-domains">
+    <div class="section-title">Life Domains</div>
+    <div class="section-desc">How your relationship with self, friends, work, and school evolved from 2013 to today. Scores 1–10, LLM-assessed per year.</div>
+    <div class="domain-chart-wrap">
+        <div class="domain-chart-title">Domain scores over time (1 = crisis / disconnected, 10 = flourishing)</div>
+        <div class="domain-svg-wrap">${buildDomainSvg()}</div>
+    </div>
+    <div class="domain-year-cards">
+        ${domainYearRowsHtml}
     </div>
 </section>
 
@@ -604,6 +796,14 @@ function showSection(id) {
 function toggleYear(year) {
     const card = document.getElementById('year-' + year);
     card.classList.toggle('expanded');
+}
+function toggleDomainRow(year) {
+    const detail = document.getElementById('ddetail-' + year);
+    const row = document.getElementById('drow-' + year);
+    if (!detail) return;
+    const open = detail.style.display === 'block';
+    detail.style.display = open ? 'none' : 'block';
+    row.style.borderColor = open ? '' : 'var(--accent)';
 }
 </script>
 </body>
