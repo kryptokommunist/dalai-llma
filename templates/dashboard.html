@@ -3544,6 +3544,49 @@ Where decay_factor = 1 - (current_score / 100)
                 `;
             }
 
+            // Relationships & Substances
+            const relArcs = Object.values(data.relationship_arcs || {});
+            const subArcs = Object.values(data.substance_arcs || {});
+            if (relArcs.length > 0 || subArcs.length > 0) {
+                const relHtml = relArcs.slice(0, 8).map(arc => {
+                    const typeColor = arc.type === 'romantic' ? 'var(--accent-red)' : 'var(--accent-purple)';
+                    return `<div style="background: var(--bg-card); border-radius: 6px; padding: 0.6rem 0.9rem; border-left: 3px solid ${typeColor}; margin-bottom: 0.5rem;">
+                        <div style="display:flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.25rem;">
+                            <strong style="color: var(--text-primary); font-size: 0.85rem;">${arc.name || ''}</strong>
+                            <span style="font-size: 0.7rem; background: rgba(255,255,255,0.07); border-radius: 4px; padding: 1px 6px; color: ${typeColor};">${arc.type || ''}</span>
+                            <span style="font-size: 0.7rem; color: var(--text-muted);">${arc.period || ''}</span>
+                        </div>
+                        <div style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5;">${(arc.arc_summary || '').slice(0, 120)}${(arc.arc_summary || '').length > 120 ? '…' : ''}</div>
+                    </div>`;
+                }).join('');
+                const subHtml = subArcs.map(arc => {
+                    const concernColor = arc.concern_level === 'high' ? 'var(--accent-red)' : arc.concern_level === 'moderate' ? 'var(--accent-orange)' : 'var(--text-muted)';
+                    return `<div style="background: var(--bg-card); border-radius: 6px; padding: 0.6rem 0.9rem; border-left: 3px solid var(--accent-blue); margin-bottom: 0.5rem;">
+                        <div style="display:flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.25rem;">
+                            <strong style="color: var(--text-primary); font-size: 0.85rem;">${arc.substance || ''}</strong>
+                            <span style="font-size: 0.7rem; color: var(--text-muted);">${arc.period || ''}</span>
+                            ${arc.concern_level ? `<span style="font-size: 0.7rem; color: ${concernColor};">concern: ${arc.concern_level}</span>` : ''}
+                        </div>
+                        <div style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5;">${(arc.arc_summary || '').slice(0, 120)}${(arc.arc_summary || '').length > 120 ? '…' : ''}</div>
+                    </div>`;
+                }).join('');
+                html += `
+                    <div style="background: var(--bg-dark); border-radius: 12px; padding: 1.25rem; grid-column: 1 / -1;">
+                        <h4 style="color: var(--accent-red); margin-bottom: 1rem; font-size: 0.95rem;">Relationships &amp; Substances</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;">
+                            <div>
+                                <div style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent-purple); font-weight: 700; margin-bottom: 0.6rem;">People (${relArcs.length})</div>
+                                ${relHtml || '<div style="color: var(--text-muted); font-size: 0.8rem;">No arcs yet</div>'}
+                            </div>
+                            <div>
+                                <div style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent-blue); font-weight: 700; margin-bottom: 0.6rem;">Substances (${subArcs.length})</div>
+                                ${subHtml || '<div style="color: var(--text-muted); font-size: 0.8rem;">No arcs yet</div>'}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
             // Patterns
             if (insights.patterns?.length) {
                 html += `
