@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const chatSources = require('./lib/chat_sources');
 
 // Configuration
 const DATA_DIR = process.env.DATA_DIR || './data';
@@ -479,6 +480,35 @@ function loadBeingJournals() {
     return entries;
 }
 
+// Adapt neutral chat-source records {text, timestamp, source, sender, participants, chatName}
+// into this pipeline's conversation-object shape.
+function adaptChatRecords(records, titlePrefix) {
+    return records.map((r, i) => ({
+        id: `${r.source}-${r.timestamp.getTime()}-${i}`,
+        title: r.chatName ? `${titlePrefix}: ${r.chatName}` : titlePrefix,
+        created: r.timestamp,
+        messages: [{ text: r.text, timestamp: r.timestamp, role: 'user' }],
+        source: r.source,
+        metadata: { sender: r.sender, participants: r.participants, chat: r.chatName }
+    })).filter(c => c.created instanceof Date && !isNaN(c.created.getTime()));
+}
+
+function loadNewChatSources() {
+    const whatsapp = chatSources.loadWhatsApp(path.join(LLM_DATA_DIR, 'Whatsapp export'));
+    const telegram = chatSources.loadTelegram(path.join(LLM_DATA_DIR, 'Telegram_Export_2026-09-28', 'result.json'));
+    const twitterDir = fs.existsSync(LLM_DATA_DIR)
+        ? fs.readdirSync(LLM_DATA_DIR).find(d => d.startsWith('twitter-'))
+        : null;
+    const twitter = twitterDir ? chatSources.loadTwitter(path.join(LLM_DATA_DIR, twitterDir, 'data')) : [];
+    const beingExtra = chatSources.loadBeingVaultExtra(path.join(LLM_DATA_DIR, 'being'));
+    return [
+        ...adaptChatRecords(whatsapp, 'WhatsApp'),
+        ...adaptChatRecords(telegram, 'Telegram'),
+        ...adaptChatRecords(twitter, 'Twitter'),
+        ...adaptChatRecords(beingExtra, 'Note')
+    ];
+}
+
 // ============================================================
 // Main Processing
 // ============================================================
@@ -495,10 +525,12 @@ function processData() {
     const searchConvs = loadGoogleSearchActivity();
     const emailConvs = loadSentEmails();
     const journalEntries = loadBeingJournals();
+    const newChatConvs = loadNewChatSources();
 
     const allConversations = [
         ...anthropicConvs, ...openaiConvs, ...geminiConvs,
-        ...searchConvs, ...emailConvs, ...journalEntries
+        ...searchConvs, ...emailConvs, ...journalEntries,
+        ...newChatConvs
     ];
     allConversations.sort((a, b) => a.created - b.created);
 
@@ -510,6 +542,7 @@ function processData() {
     console.log(`  Google Search: ${searchConvs.length}`);
     console.log(`  Sent Emails: ${emailConvs.length}`);
     console.log(`  Journals: ${journalEntries.length}`);
+    console.log(`  New chat sources (WhatsApp/Telegram/Twitter/Notes): ${newChatConvs.length}`);
 
     const startDate = validConvs[0]?.created;
     const endDate = validConvs[validConvs.length - 1]?.created;

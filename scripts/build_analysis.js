@@ -23,6 +23,8 @@ const relationshipMonthly = insights.relationship_monthly || {};
 const relationshipArcs = insights.relationship_arcs || {};
 const substanceMonthly = insights.substance_monthly || {};
 const substanceArcs = insights.substance_arcs || {};
+const nervousArc = insights.nervous_system_arc || null;
+const selfInsight = insights.self_insight || null;
 
 const yearKeys = Object.keys(yearlySummaries).sort();
 
@@ -250,10 +252,41 @@ const relArcHtml = Object.values(relationshipArcs).length
             <span class="rel-arc-weight" style="color:${weightColor(arc.emotional_weight)}">${escHtml(arc.emotional_weight || '')}</span>
         </div>
         <div class="rel-arc-summary">${escHtml(arc.arc_summary || '')}</div>
+        ${arc.nervous_system_arc ? `<div class="rel-arc-nervous"><strong>Nervous-system arc:</strong> ${escHtml(arc.nervous_system_arc)}</div>` : ''}
         ${(arc.key_phases || []).length ? `<div class="rel-arc-phases">${arc.key_phases.map(p => `<span class="rel-phase-chip">${escHtml(p)}</span>`).join('')}</div>` : ''}
         ${arc.status_at_end ? `<div class="rel-arc-end">At end: <em>${escHtml(arc.status_at_end)}</em></div>` : ''}
     </div>`).join('\n')
     : '<div class="empty-state">No multi-month relationship arcs found yet. Run the pipeline to extract.</div>';
+
+// Overall nervous-system arc (whole-corpus trauma-response trajectory)
+const nervousArcHtml = (nervousArc && nervousArc.arc_summary)
+    ? `
+    <div class="rel-arc-card">
+        <div class="rel-arc-header">
+            <span class="rel-arc-name">Nervous-System Arc</span>
+            ${nervousArc.dominant_overall ? `<span class="rel-arc-type friendship">dominant: ${escHtml(nervousArc.dominant_overall)}</span>` : ''}
+            ${nervousArc.regulation_trend ? `<span class="rel-arc-weight">regulation: ${escHtml(nervousArc.regulation_trend)}</span>` : ''}
+        </div>
+        <div class="rel-arc-summary">${escHtml(nervousArc.arc_summary)}</div>
+        ${(nervousArc.shifts || []).length ? `<div class="rel-arc-phases">${nervousArc.shifts.map(p => `<span class="rel-phase-chip">${escHtml(p)}</span>`).join('')}</div>` : ''}
+        ${nervousArc.current_tendency ? `<div class="rel-arc-end">Recent tendency: <em>${escHtml(nervousArc.current_tendency)}</em></div>` : ''}
+    </div>`
+    : '<div class="empty-state">No nervous-system arc yet. Run the pipeline to extract.</div>';
+
+// Relationship to self as a tracked entity (whole-corpus self-relational arc)
+const selfArcHtml = (selfInsight && selfInsight.self_summary && selfInsight.self_summary !== 'Unable to analyze')
+    ? `
+    <div class="rel-arc-card" style="border-left-color:#a78bfa;">
+        <div class="rel-arc-header">
+            <span class="rel-arc-name">Relationship to Self</span>
+            ${selfInsight.self_abandonment_trend ? `<span class="rel-arc-weight">self-abandonment: ${escHtml(selfInsight.self_abandonment_trend)}</span>` : ''}
+        </div>
+        <div class="rel-arc-summary">${escHtml(selfInsight.self_summary)}</div>
+        ${selfInsight.arc_summary ? `<div class="rel-arc-nervous"><strong>Arc:</strong> ${escHtml(selfInsight.arc_summary)}</div>` : ''}
+        ${(selfInsight.recommendations || []).length ? `<div class="rel-arc-phases">${selfInsight.recommendations.map(p => `<span class="rel-phase-chip">${escHtml(p)}</span>`).join('')}</div>` : ''}
+        ${selfInsight.current_tendency ? `<div class="rel-arc-end">Recent tendency: <em>${escHtml(selfInsight.current_tendency)}</em></div>` : ''}
+    </div>`
+    : '<div class="empty-state">No relationship-to-self insight yet. Run the pipeline to extract.</div>';
 
 // Monthly relationship timeline
 const relMonthsSorted = Object.keys(relationshipMonthly).sort();
@@ -871,6 +904,13 @@ footer {
     font-style: italic;
     margin-top: 6px;
 }
+.rel-arc-nervous {
+    font-size: 0.82rem;
+    color: #14b8a6;
+    margin-top: 6px;
+    border-left: 2px solid #14b8a6;
+    padding-left: 8px;
+}
 .sub-arc-trend {
     font-size: 0.78rem;
     color: var(--text-dim);
@@ -1052,6 +1092,12 @@ footer {
 <section class="section" id="sec-relationships">
     <div class="section-title">Relationships & Substances</div>
     <div class="section-desc">Tracked month by month across all data sources, with synthesized arcs for people and substances that appear across multiple months.</div>
+
+    <div class="section-subtitle">Nervous-System / Trauma-Response Arc</div>
+    ${nervousArcHtml}
+
+    <div class="section-subtitle">Relationship to Self</div>
+    ${selfArcHtml}
 
     <div class="section-subtitle">Relationship Arcs</div>
     ${relArcHtml}

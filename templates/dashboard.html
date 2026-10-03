@@ -1377,6 +1377,16 @@
             </div>
         </div>
 
+        <!-- Nervous-System / Trauma-Response States Over Time -->
+        <div class="chart-card full-width" style="margin-bottom: 2rem;">
+            <button class="chart-info-btn" onclick="showInfo('nervousSystem')">i</button>
+            <div class="chart-title">Nervous-System States Over Time</div>
+            <div class="chart-subtitle" id="nervousArcSummary"></div>
+            <div class="chart-container">
+                <canvas id="nervousSystemChart"></canvas>
+            </div>
+        </div>
+
         <!-- Category Over Time -->
         <div class="chart-card full-width" style="margin-bottom: 2rem;">
             <button class="chart-info-btn" onclick="showInfo('categoryTime')">i</button>
@@ -1501,6 +1511,7 @@
         /* __CATEGORY_DATA__ */
         let categoryChart = null;
         let victimLlmChart = null;
+        let nervousSystemChart = null;
         let categoryTimeChart = null;
 
         // Helper: convert week string to approximate month
@@ -1703,8 +1714,20 @@
             const getSentimentColor = (s) => s > 0.2 ? '#22c55e' : s < -0.2 ? '#ef4444' : '#9090a0';
             const getSentimentLabel = (s) => s > 0.2 ? '↑' : s < -0.2 ? '↓' : '–';
 
-            // Show all people (no slice limit)
-            grid.innerHTML = peopleInRange.map(p => `
+            // Show all people (no slice limit). A pinned "Relationship to Self"
+            // entity leads the grid when self-insight data is present.
+            const selfIns = (typeof llmInsightsData !== 'undefined' && llmInsightsData)
+                ? llmInsightsData.self_insight : null;
+            const selfCard = selfIns ? `
+                <div class="person-card" onclick="showSelfDetail()" style="border-color: var(--accent-purple);">
+                    <div class="person-name">Relationship to Self</div>
+                    <div class="person-mentions">★</div>
+                    <div class="person-context">how you relate to yourself over time</div>
+                    <div class="click-hint">Click for details</div>
+                </div>
+            ` : '';
+
+            grid.innerHTML = selfCard + peopleInRange.map(p => `
                 <div class="person-card" onclick="showPersonDetail('${p.key}')">
                     <div class="person-name">${p.name}</div>
                     <div class="person-mentions">${p.mentions}</div>
@@ -2562,6 +2585,28 @@
                     <p>High empowered + low victim = strong psychological health. High victim scores in specific months often correlate with crisis periods.</p>
                 `
             },
+            nervousSystem: {
+                title: 'Nervous-System States Over Time',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>Monthly 0-100 intensity scores for nervous-system / trauma-response states, analyzed by Claude from journals, AI chats, and emails.</p>
+
+                    <h4>The states</h4>
+                    <ul>
+                        <li><strong style="color: #14b8a6;">Centered:</strong> grounded, embodied, present, responding from choice — being in one's center (Aikido / Alexander / contact-improv sense), not self-abandoning. This is the regulated anchor state.</li>
+                        <li><strong style="color: #f59e0b;">Fawn:</strong> appeasing, people-pleasing, self-abandoning</li>
+                        <li><strong style="color: #b91c1c;">Dominate:</strong> controlling, overpowering</li>
+                        <li><strong style="color: #ef4444;">Fight:</strong> anger, confrontation, defensiveness</li>
+                        <li><strong style="color: #f97316;">Flight:</strong> escaping, over-busyness, distraction</li>
+                        <li><strong style="color: #6366f1;">Freeze:</strong> shutdown, numbness, dissociation</li>
+                        <li><strong style="color: #8b5cf6;">Avoid:</strong> withdrawal, isolation</li>
+                        <li><strong style="color: #eab308;">Anxious:</strong> worry, hypervigilance, rumination</li>
+                    </ul>
+
+                    <h4>Interpretation</h4>
+                    <p>A rising <strong style="color: #14b8a6;">centered</strong> line with falling reactive states suggests improving regulation over time. Per-person state arcs appear when you click a person in "People Mentioned".</p>
+                `
+            },
             categoryTime: {
                 title: 'Category Trends Over Time',
                 body: `
@@ -2752,6 +2797,41 @@ Where decay_factor = 1 - (current_score / 100)
         // Person detail descriptions
         const personDescriptions = {};
 
+        // Colors for the 8 nervous-system states (centered = calm teal anchor)
+        const NS_STATE_COLORS = {
+            centered: '#14b8a6', fawn: '#f59e0b', dominate: '#b91c1c', fight: '#ef4444',
+            flight: '#f97316', freeze: '#6366f1', avoid: '#8b5cf6', anxious: '#eab308',
+            unclear: '#64748b', regulated: '#14b8a6'
+        };
+
+        // Join a person (by name, case-insensitive) to the LLM relationship/nervous-system data.
+        // Returns { arc, nervousByMonth: [{month, state, note}] } or null when nothing matches.
+        function getPersonRelationalData(personName) {
+            const ins = (typeof llmInsightsData !== 'undefined') ? llmInsightsData : null;
+            if (!ins || !personName) return null;
+            const key = personName.toLowerCase();
+
+            const arc = ins.relationship_arcs ? ins.relationship_arcs[key] : null;
+
+            const nervousByMonth = [];
+            const relMonthly = ins.relationship_monthly || {};
+            Object.keys(relMonthly).sort().forEach(month => {
+                const d = relMonthly[month] || {};
+                const entries = [...(d.romantic || []), ...(d.friendships || [])];
+                const match = entries.find(e => (e.name || '').toLowerCase() === key);
+                if (match && match.nervous_state && match.nervous_state.dominant_state) {
+                    nervousByMonth.push({
+                        month,
+                        state: match.nervous_state.dominant_state,
+                        note: match.nervous_state.state_note || ''
+                    });
+                }
+            });
+
+            if (!arc && nervousByMonth.length === 0) return null;
+            return { arc, nervousByMonth };
+        }
+
         function showPersonDetail(personId) {
             const person = allPeopleData[personId];
             if (!person) return;
@@ -2770,6 +2850,34 @@ Where decay_factor = 1 - (current_score / 100)
             });
 
             const description = personDescriptions[personId] || `${person.context} mentioned in conversations.`;
+
+            // Per-person relational + nervous-system data (from LLM pipeline), joined by name
+            const relational = getPersonRelationalData(person.name);
+            let nervousSection = '';
+            if (relational) {
+                const chips = relational.nervousByMonth.map(({ month, state, note }) => {
+                    const color = NS_STATE_COLORS[state] || NS_STATE_COLORS.unclear;
+                    const label = state.charAt(0).toUpperCase() + state.slice(1);
+                    const title = note ? ` title="${note.replace(/"/g, '&quot;')}"` : '';
+                    return `<span${title} style="padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.75rem; background: ${color}22; color: ${color}; border: 1px solid ${color}55;">${month}: ${label}</span>`;
+                }).join(' ');
+
+                const arc = relational.arc;
+                const arcBlock = arc ? `
+                    <div style="padding: 0.75rem; background: var(--bg-dark); border-radius: 8px; margin-bottom: 0.75rem;">
+                        <div style="font-size: 0.85rem; line-height: 1.5;">${arc.arc_summary || ''}</div>
+                        ${arc.nervous_system_arc ? `<div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.5rem;"><strong>Nervous-system arc:</strong> ${arc.nervous_system_arc}</div>` : ''}
+                        ${arc.status_at_end ? `<div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.4rem;">At last contact: ${arc.status_at_end}</div>` : ''}
+                    </div>` : '';
+
+                if (arcBlock || chips) {
+                    nervousSection = `
+                        <h4>Relationship &amp; Nervous-System Arc</h4>
+                        ${arcBlock}
+                        ${chips ? `<div style="display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem;">${chips}</div>` : ''}
+                    `;
+                }
+            }
 
             // Build monthly breakdown
             const monthlyBreakdown = Object.entries(person.byMonth)
@@ -2813,6 +2921,8 @@ Where decay_factor = 1 - (current_score / 100)
                 </div>
                 ` : ''}
 
+                ${nervousSection}
+
                 <button onclick="generatePersonInsights('${personId}')"
                     id="generateInsightsBtn"
                     style="width: 100%; padding: 0.75rem 1rem; background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue)); color: white; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-top: 1rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
@@ -2822,6 +2932,43 @@ Where decay_factor = 1 - (current_score / 100)
             `;
 
             document.getElementById('modalTitle').textContent = person.name;
+            document.getElementById('modalBody').innerHTML = body;
+            document.getElementById('infoModal').classList.add('active');
+        }
+
+        // "Relationship to Self" as a first-class entity — content comes entirely
+        // from injected self_insight JSON (no personal data baked into this template).
+        function showSelfDetail() {
+            const s = (typeof llmInsightsData !== 'undefined' && llmInsightsData)
+                ? llmInsightsData.self_insight : null;
+            if (!s) return;
+
+            const trendColors = { improving: 'var(--accent-green)', worsening: 'var(--accent-red)', stable: 'var(--accent-blue)', mixed: 'var(--accent-orange)', unclear: 'var(--text-secondary)' };
+            const trend = s.self_abandonment_trend || 'unclear';
+            const trendColor = trendColors[trend] || 'var(--text-secondary)';
+
+            const list = (items, color) => (items && items.length)
+                ? `<ul style="margin: 0 0 1rem; padding-left: 1.25rem; color: ${color}; font-size: 0.85rem;">${items.map(x => `<li>${x}</li>`).join('')}</ul>`
+                : '';
+
+            const body = `
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+                    <div style="width: 60px; height: 60px; background: linear-gradient(135deg, var(--accent-purple), #14b8a6); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; color: white;">☯</div>
+                    <div>
+                        <div style="font-size: 1.3rem; font-weight: 600;">Relationship to Self</div>
+                        <div style="color: var(--text-secondary);">tracked as an entity over time</div>
+                    </div>
+                </div>
+                <p style="font-size: 0.95rem; line-height: 1.6; margin-bottom: 1rem;">${s.self_summary || ''}</p>
+                ${s.arc_summary ? `<div style="padding: 0.75rem; background: var(--bg-dark); border-radius: 8px; margin-bottom: 1rem;"><strong>Arc:</strong> ${s.arc_summary}</div>` : ''}
+                ${s.current_tendency ? `<div style="margin-bottom: 0.5rem;"><span style="color: var(--text-secondary); font-size: 0.75rem;">Current tendency</span><div style="font-size: 0.9rem;">${s.current_tendency}</div></div>` : ''}
+                <div style="margin-bottom: 1rem;"><span style="color: var(--text-secondary); font-size: 0.75rem;">Self-abandonment trend</span><div style="color: ${trendColor}; font-weight: 600; text-transform: capitalize;">${trend}</div></div>
+                ${s.strengths?.length ? `<div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.4rem;">Strengths</div>${list(s.strengths, 'var(--accent-green)')}` : ''}
+                ${s.concerns?.length ? `<div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.4rem;">Concerns</div>${list(s.concerns, 'var(--accent-orange)')}` : ''}
+                ${s.recommendations?.length ? `<div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.4rem;">Recommendations</div>${list(s.recommendations, 'var(--accent-blue)')}` : ''}
+            `;
+
+            document.getElementById('modalTitle').textContent = 'Relationship to Self';
             document.getElementById('modalBody').innerHTML = body;
             document.getElementById('infoModal').classList.add('active');
         }
@@ -3881,6 +4028,77 @@ Where decay_factor = 1 - (current_score / 100)
                         }
                     }
                 });
+            }
+
+            // Nervous-System States Chart - 8 states over the selected range
+            const nervousData = categoryData.nervous_system || {};
+            const nsMonths = Object.keys(nervousData).filter(m => m >= startMonth && m <= endMonth).sort();
+            // Order: centered (regulated anchor) first, then the 7 reactive states
+            const NS_STATES = ['centered', 'fawn', 'dominate', 'fight', 'flight', 'freeze', 'avoid', 'anxious'];
+            const NS_COLORS = {
+                centered: '#14b8a6',  // teal — calm anchor, visually set apart
+                fawn:     '#f59e0b',
+                dominate: '#b91c1c',
+                fight:    '#ef4444',
+                flight:   '#f97316',
+                freeze:   '#6366f1',
+                avoid:    '#8b5cf6',
+                anxious:  '#eab308'
+            };
+            const nsCtx = document.getElementById('nervousSystemChart');
+            if (nsCtx && nsMonths.length > 0) {
+                if (nervousSystemChart) nervousSystemChart.destroy();
+                nervousSystemChart = new Chart(nsCtx.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: nsMonths.map(m => {
+                            const [y, mo] = m.split('-');
+                            return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(mo)-1]} ${y.slice(2)}`;
+                        }),
+                        datasets: NS_STATES.map(state => ({
+                            label: state.charAt(0).toUpperCase() + state.slice(1),
+                            data: nsMonths.map(m => nervousData[m]?.scores?.[state] ?? null),
+                            borderColor: NS_COLORS[state],
+                            backgroundColor: state === 'centered' ? 'rgba(20, 184, 166, 0.12)' : 'transparent',
+                            borderWidth: state === 'centered' ? 3 : 1.5,
+                            fill: state === 'centered',
+                            tension: 0.3,
+                            spanGaps: true,
+                            pointRadius: 0,
+                            pointHoverRadius: 4
+                        }))
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        scales: {
+                            y: {
+                                min: 0,
+                                max: 100,
+                                grid: { color: 'rgba(255,255,255,0.05)' },
+                                ticks: { color: '#9ca3af' }
+                            },
+                            x: {
+                                grid: { color: 'rgba(255,255,255,0.05)' },
+                                ticks: { color: '#9ca3af', maxRotation: 45, minRotation: 45, font: { size: 9 } }
+                            }
+                        },
+                        plugins: {
+                            legend: { labels: { color: '#9ca3af', boxWidth: 12, font: { size: 10 } } }
+                        }
+                    }
+                });
+
+                // Arc summary caption, if the pipeline produced one
+                const arc = (typeof llmInsightsData !== 'undefined' && llmInsightsData)
+                    ? llmInsightsData.nervous_system_arc : null;
+                const arcEl = document.getElementById('nervousArcSummary');
+                if (arcEl) {
+                    arcEl.textContent = arc && arc.arc_summary
+                        ? arc.arc_summary
+                        : '';
+                }
             }
 
             // Category Over Time - Stacked Area Chart (filtered by date range)

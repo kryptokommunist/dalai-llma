@@ -18,6 +18,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const chatSources = require('./lib/chat_sources');
 
 // API Configuration
 const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || 'http://localhost:9988/anthropic/';
@@ -66,6 +67,11 @@ const OUTPUT = {
 const PARALLEL_LIMIT = 10;
 const BATCH_SIZE = 30;
 const MAX_RETRIES = 3;
+
+// Nervous-system / trauma-response states tracked per month (general) and per person.
+// Includes 'centered' as the positive/regulated anchor state (being in one's center —
+// grounded, embodied, not self-abandoning — in the Aikido / Alexander-technique / contact-improv sense).
+const NERVOUS_STATES = ['fawn', 'dominate', 'fight', 'flight', 'freeze', 'avoid', 'anxious', 'centered'];
 
 // Force re-analysis flag
 const FORCE = process.argv.includes('--force');
@@ -298,6 +304,17 @@ function loadAllData() {
     }
     console.log(`  Loaded ${journalCount} journal entries`);
 
+    // --- New chat/message sources (WhatsApp, Telegram, Twitter) + rest of Obsidian vault ---
+    // These return the same flat {text, timestamp, source, [sender], [participants]} shape.
+    const llmDataDir = path.join(DATA_DIR, 'LLM Data');
+    allMessages.push(...chatSources.loadWhatsApp(path.join(llmDataDir, 'Whatsapp export')));
+    allMessages.push(...chatSources.loadTelegram(path.join(llmDataDir, 'Telegram_Export_2026-09-28', 'result.json')));
+    const twitterDir = fs.existsSync(llmDataDir)
+        ? fs.readdirSync(llmDataDir).find(d => d.startsWith('twitter-'))
+        : null;
+    if (twitterDir) allMessages.push(...chatSources.loadTwitter(path.join(llmDataDir, twitterDir, 'data')));
+    allMessages.push(...chatSources.loadBeingVaultExtra(path.join(llmDataDir, 'being')));
+
     // Sort by timestamp
     allMessages.sort((a, b) => a.timestamp - b.timestamp);
 
@@ -351,6 +368,39 @@ Respond with JSON:
         victim_score: 50,
         empowered_score: 50,
         dominant_pattern: 'mixed',
+        analysis: 'Unable to analyze'
+    });
+}
+
+async function analyzeNervousSystem(month, sample) {
+    const prompt = `Analyze the dominant nervous-system / trauma-response states evidenced in these messages from ${month}.
+
+Score each of these 7 states 0-100 by how strongly it shows up in the person's language and behavior this month:
+- fawn: appeasing, people-pleasing, self-abandoning to keep others comfortable
+- dominate: controlling, over-powering, aggressive assertion of control
+- fight: anger, confrontation, defensiveness, hostility
+- flight: escaping, over-busyness, fleeing situations, distraction
+- freeze: shutdown, numbness, paralysis, dissociation, inability to act
+- avoid: withdrawal, isolation, avoidance of people/feelings/tasks
+- anxious: worry, hypervigilance, rumination, catastrophizing
+- centered: grounded, embodied, present, resourced — being in one's center (Aikido / Alexander-technique / contact-improv sense); responding from choice rather than reactivity, NOT self-abandoning
+
+Messages:
+${sample.map(m => `- "${m.substring(0, 200)}"`).join('\n')}
+
+Respond with JSON:
+{
+    "scores": { ${NERVOUS_STATES.map(s => `"${s}": 0-100`).join(', ')} },
+    "dominant_state": "${NERVOUS_STATES.join('" | "')}" | "unclear",
+    "evidence_phrases": ["short phrase from the data supporting the dominant state"],
+    "analysis": "Brief 2-sentence analysis of the nervous-system picture this month"
+}`;
+
+    const response = await callClaude(prompt, 1024);
+    return parseJSON(response, {
+        scores: Object.fromEntries(NERVOUS_STATES.map(s => [s, 50])),
+        dominant_state: 'unclear',
+        evidence_phrases: [],
         analysis: 'Unable to analyze'
     });
 }
@@ -439,9 +489,10 @@ Write a rich, honest yearly narrative summary in JSON:
 }
 
 async function extractMonthEvents(month, messages) {
-    // Only use AI chat + journal + email sources — they have meaningful content
+    // Only use content-rich sources (chats, journals, emails) — searches are noise
     const richMessages = messages.filter(m =>
-        ['anthropic', 'openai', 'gemini', 'journal', 'email_sent'].includes(m.source)
+        ['anthropic', 'openai', 'gemini', 'journal', 'email_sent',
+         'whatsapp', 'telegram', 'twitter', 'twitter_dm'].includes(m.source)
     );
     if (richMessages.length === 0) return [];
 
@@ -470,7 +521,8 @@ Return [] if there are no clearly significant life events. Do not invent events 
 
 async function extractMonthRelationships(month, messages) {
     const richMessages = messages.filter(m =>
-        ['anthropic', 'openai', 'gemini', 'journal', 'email_sent'].includes(m.source)
+        ['anthropic', 'openai', 'gemini', 'journal', 'email_sent',
+         'whatsapp', 'telegram', 'twitter', 'twitter_dm'].includes(m.source)
     );
     if (richMessages.length === 0) return { romantic: [], friendships: [], notes: '' };
 
@@ -494,6 +546,10 @@ Return JSON:
       "type": "casual|dating|long-term|ex|crush|unclear",
       "status": "active|ended|complicated|rekindling|mourning|unclear",
       "mood": "brief phrase about emotional tone, e.g. 'tender, uncertain' or 'grief, longing'",
+      "nervous_state": {
+        "dominant_state": "fawn|dominate|fight|flight|freeze|avoid|anxious|centered|unclear",
+        "state_note": "one short phrase on the trauma-response/nervous-system dynamic evidenced with this person (centered = grounded, not self-abandoning), or '' if none"
+      },
       "notes": "1-2 sentences of what is evidenced — specific, not inferred beyond the data"
     }
   ],
@@ -501,6 +557,10 @@ Return JSON:
     {
       "name": "person's name",
       "quality": "close|distant|conflicted|new|rekindling|unclear",
+      "nervous_state": {
+        "dominant_state": "fawn|dominate|fight|flight|freeze|avoid|anxious|centered|unclear",
+        "state_note": "one short phrase on the nervous-system dynamic evidenced with this person (centered = grounded, not self-abandoning), or ''"
+      },
       "notes": "1-2 sentences"
     }
   ],
@@ -515,7 +575,8 @@ Return empty arrays if nothing is clearly evidenced. Do not invent or infer beyo
 
 async function extractMonthSubstances(month, messages) {
     const richMessages = messages.filter(m =>
-        ['anthropic', 'openai', 'gemini', 'journal', 'email_sent'].includes(m.source)
+        ['anthropic', 'openai', 'gemini', 'journal', 'email_sent',
+         'whatsapp', 'telegram', 'twitter', 'twitter_dm'].includes(m.source)
     );
     if (richMessages.length === 0) return { substances: [], notes: '' };
 
@@ -580,7 +641,7 @@ async function synthesizeRelationshipArcs(relationshipMonthly) {
         const firstMonth = entriesSorted[0].month;
         const lastMonth = entriesSorted[entriesSorted.length - 1].month;
         const entryLines = entriesSorted.map(e =>
-            `  ${e.month}: ${e.notes || ''} [${e.status || e.quality || ''}] ${e.mood || ''}`
+            `  ${e.month}: ${e.notes || ''} [${e.status || e.quality || ''}] ${e.mood || ''} {state: ${e.nervous_state?.dominant_state || '?'}${e.nervous_state?.state_note ? ` — ${e.nervous_state.state_note}` : ''}}`
         ).join('\n');
 
         const prompt = `Synthesize the arc of this relationship across ${entriesSorted.length} months (${firstMonth} to ${lastMonth}).
@@ -597,6 +658,7 @@ Return JSON:
   "arc_summary": "3-4 sentences describing the arc of this relationship — what it was, how it evolved, what it meant emotionally",
   "key_phases": ["brief phase description with approximate month, e.g. 'early 2023: intense connection'"],
   "emotional_weight": "light|moderate|significant|heavy",
+  "nervous_system_arc": "1-2 sentences on how the person's dominant nervous-system/trauma-response states shifted across this relationship (e.g. 'early fawning → later avoidance and freeze'); '' if not evidenced",
   "status_at_end": "brief phrase describing where this relationship stood at the last data point"
 }`;
 
@@ -668,6 +730,41 @@ Return JSON:
     return arcs;
 }
 
+async function synthesizeNervousSystemArc(nervousMonthly) {
+    const monthLines = Object.entries(nervousMonthly || {})
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([m, d]) => {
+            const scores = d?.scores || {};
+            const top = NERVOUS_STATES
+                .map(s => [s, scores[s] ?? 0])
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 2)
+                .map(([s, v]) => `${s}=${v}`)
+                .join(', ');
+            return `  ${m}: dominant=${d?.dominant_state || '?'} [${top}]`;
+        })
+        .join('\n');
+
+    if (!monthLines) return null;
+
+    const prompt = `Synthesize the overall arc of this person's nervous-system / trauma-response patterns across time, based on monthly dominant-state readings (states: ${NERVOUS_STATES.join(', ')}).
+
+Monthly data:
+${monthLines}
+
+Return JSON:
+{
+  "arc_summary": "3-4 sentences on how the dominant nervous-system states evolved across the whole period — which responses dominated when, and the overall trajectory",
+  "dominant_overall": "the single most prevalent state across the whole period",
+  "shifts": ["notable shift with approximate time, e.g. '2015-2018: chronic freeze/avoid', '2022+: more fight and anxious, less fawn'"],
+  "current_tendency": "brief phrase on the most recent tendency",
+  "regulation_trend": "improving|worsening|stable|mixed|unclear (improving = more 'centered', less dysregulation over time)"
+}`;
+
+    const response = await callClaude(prompt, 1024);
+    return parseJSON(response, null);
+}
+
 async function generatePersonInsight(name, data) {
     const prompt = `Analyze relationship with "${name}":
 
@@ -711,6 +808,21 @@ async function generateOverallInsights(aggregated) {
         .map(([m, v]) => `${m}: victim=${v?.victim_score ?? '?'} empowered=${v?.empowered_score ?? '?'} pattern=${v?.dominant_pattern ?? '?'}`)
         .join('\n');
 
+    const nervousSummary = Object.entries(aggregated.nervous_system || {})
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .slice(-6)
+        .map(([m, n]) => {
+            const scores = n?.scores || {};
+            const top = NERVOUS_STATES
+                .map(s => [s, scores[s] ?? 0])
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 3)
+                .map(([s, v]) => `${s}=${v}`)
+                .join(', ');
+            return `${m}: dominant=${n?.dominant_state ?? '?'} [${top}]`;
+        })
+        .join('\n');
+
     const yearList = Object.keys(aggregated.yearly_summaries || {}).sort().join(', ');
 
     const prompt = `You are analyzing ${yearList ? yearList + ' — multiple years' : 'multiple years'} of a person's real digital life: AI conversations (Claude, ChatGPT, Gemini), Google searches, sent emails, and personal journals. This is their authentic inner life.
@@ -723,6 +835,9 @@ ${categoryTotals || 'No category data'}
 
 Victim vs empowered language scores (last 6 months, 0-100):
 ${victimSummary || 'No language data'}
+
+Nervous-system / trauma-response states (last 6 months, dominant + top scores 0-100):
+${nervousSummary || 'No nervous-system data'}
 
 Based on this real data, generate a deep psychological and life analysis in JSON:
 {
@@ -746,6 +861,52 @@ Be specific, honest, and grounded in the actual data. Avoid generic platitudes.`
     return parseJSON(response, { trajectory: 'Analysis failed — check API logs' });
 }
 
+// Treat the user's RELATIONSHIP TO THEMSELVES as a first-class tracked entity,
+// synthesized from journals + the nervous-system data (esp. centered vs. fawn/
+// self-abandonment) and victim/empowered language. One synthesis call total.
+async function generateSelfInsight(aggregated) {
+    const nervousSummary = Object.entries(aggregated.nervous_system || {})
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([m, n]) => {
+            const scores = n?.scores || {};
+            const centered = scores.centered ?? '?';
+            const fawn = scores.fawn ?? '?';
+            return `${m}: dominant=${n?.dominant_state ?? '?'} centered=${centered} fawn=${fawn}`;
+        })
+        .filter((_, i, arr) => i % Math.max(1, Math.floor(arr.length / 24)) === 0) // thin to ~24 points
+        .join('\n');
+
+    const victimSummary = Object.entries(aggregated.victim_analysis || {})
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .slice(-12)
+        .map(([m, v]) => `${m}: victim=${v?.victim_score ?? '?'} empowered=${v?.empowered_score ?? '?'}`)
+        .join('\n');
+
+    const prompt = `You are analyzing a person's RELATIONSHIP WITH THEMSELVES over time — how they treat, speak to, and hold themselves — as a tracked entity, parallel to how we track their relationships with other people. Base this on their real journals, nervous-system/trauma-response states, and self-talk language.
+
+Nervous-system states over time (centered = being in one's own center, grounded, NOT self-abandoning; fawn = self-abandoning to appease others):
+${nervousSummary || 'No nervous-system data'}
+
+Victim vs. empowered self-language (last 12 months, 0-100):
+${victimSummary || 'No language data'}
+
+Return JSON describing the relationship-to-self as an entity:
+{
+    "self_summary": "2-3 sentences on how this person relates to themselves overall",
+    "arc_summary": "how the relationship-to-self shifted across the years (e.g. 'early chronic self-abandonment/fawn → growing capacity to stay centered')",
+    "current_tendency": "brief phrase on the most recent tendency toward or away from self-abandonment",
+    "self_abandonment_trend": "improving|worsening|stable|mixed|unclear (improving = more centered, less fawn/self-abandonment)",
+    "strengths": ["specific self-relational strength visible in the data"],
+    "concerns": ["specific self-relational concern"],
+    "recommendations": ["concrete, specific recommendation for a healthier relationship to self"]
+}
+
+Be specific and grounded in the data. Avoid platitudes.`;
+
+    const response = await callClaude(prompt, 2000);
+    return parseJSON(response, { self_summary: 'Unable to analyze', recommendations: [] });
+}
+
 // ============================================
 // People extraction from dashboard data
 // ============================================
@@ -766,7 +927,8 @@ function loadPeopleFromDashboard() {
 
 async function processMonth(month, messages, existingData) {
     if (!FORCE && existingData.categories?.[month] && existingData.victim?.[month] &&
-        existingData.relationships?.[month] && existingData.substances?.[month]) {
+        existingData.relationships?.[month] && existingData.substances?.[month] &&
+        existingData.nervous?.[month]) {
         return { month, skipped: true };
     }
 
@@ -777,6 +939,7 @@ async function processMonth(month, messages, existingData) {
         insight: null,
         relationships: null,
         substances: null,
+        nervous_system: null,
         success: true
     };
 
@@ -793,16 +956,16 @@ async function processMonth(month, messages, existingData) {
             }
         }
 
-        // Analyze victim language — prefer journal/AI chat entries
+        // Analyze victim language + nervous-system state — prefer journal/AI chat entries
         const richMessages = messages.filter(m =>
-            ['anthropic', 'openai', 'gemini', 'journal', 'email_sent'].includes(m.source)
+            ['anthropic', 'openai', 'gemini', 'journal', 'email_sent',
+             'whatsapp', 'telegram', 'twitter', 'twitter_dm'].includes(m.source)
         );
         const samplePool = richMessages.length > 0 ? richMessages : messages;
         const sample = samplePool
             .sort(() => Math.random() - 0.5)
             .slice(0, 15)
             .map(m => m.text);
-        result.victim = await analyzeVictimLanguage(month, sample);
 
         // Source breakdown for this month
         const sourceCounts = {};
@@ -810,8 +973,10 @@ async function processMonth(month, messages, existingData) {
             sourceCounts[m.source] = (sourceCounts[m.source] || 0) + 1;
         }
 
-        // Run insight + relationship + substance extraction in parallel
-        [result.insight, result.relationships, result.substances] = await Promise.all([
+        // Run victim + nervous-system + insight + relationship + substance extraction in parallel
+        [result.victim, result.nervous_system, result.insight, result.relationships, result.substances] = await Promise.all([
+            analyzeVictimLanguage(month, sample),
+            analyzeNervousSystem(month, sample),
             generateMonthlyInsight(month, messages, {
                 total: messages.length,
                 sources: sourceCounts,
@@ -874,6 +1039,7 @@ async function main() {
     const existingData = {
         categories: {},
         victim: {},
+        nervous: {},
         insights: {},
         relationships: {},
         substances: {}
@@ -883,18 +1049,21 @@ async function main() {
         const data = JSON.parse(fs.readFileSync(OUTPUT.categories, 'utf8'));
         existingData.categories = data.categories || {};
         existingData.victim = data.victim_analysis || {};
+        existingData.nervous = data.nervous_system || {};
     }
 
     // Load existing yearly summaries (don't re-run unless --force)
     let existingYearlySummaries = {};
     let existingRelationshipArcs = {};
     let existingSubstanceArcs = {};
+    let existingNervousArc = null;
     if (fs.existsSync(OUTPUT.insights)) {
         try {
             const d = JSON.parse(fs.readFileSync(OUTPUT.insights, 'utf8'));
             existingYearlySummaries = d.yearly_summaries || {};
             existingRelationshipArcs = d.relationship_arcs || {};
             existingSubstanceArcs = d.substance_arcs || {};
+            existingNervousArc = d.nervous_system_arc || null;
             existingData.relationships = d.relationship_monthly || {};
             existingData.substances = d.substance_monthly || {};
         } catch (e) { /* ignore */ }
@@ -952,6 +1121,7 @@ async function main() {
     const aggregated = {
         categories: { ...existingData.categories },
         victim_analysis: { ...existingData.victim },
+        nervous_system: { ...existingData.nervous },
         monthly: {},
         relationship_monthly: { ...existingData.relationships },
         substance_monthly: { ...existingData.substances },
@@ -970,6 +1140,9 @@ async function main() {
             if (existingData.victim[result.month]) {
                 aggregated.victim_analysis[result.month] = existingData.victim[result.month];
             }
+            if (existingData.nervous[result.month]) {
+                aggregated.nervous_system[result.month] = existingData.nervous[result.month];
+            }
             // relationship/substance already merged above from existingData
             if (fs.existsSync(OUTPUT.insights)) {
                 try {
@@ -984,6 +1157,7 @@ async function main() {
         if (result.success) {
             aggregated.categories[result.month] = result.categories;
             aggregated.victim_analysis[result.month] = result.victim;
+            if (result.nervous_system) aggregated.nervous_system[result.month] = result.nervous_system;
             aggregated.monthly[result.month] = result.insight;
             if (result.relationships) aggregated.relationship_monthly[result.month] = result.relationships;
             if (result.substances) aggregated.substance_monthly[result.month] = result.substances;
@@ -1041,19 +1215,24 @@ async function main() {
 
     console.log(`\n  Generated ${Object.keys(aggregated.yearly_summaries).length} yearly summaries\n`);
 
-    // ========== PHASE 3b: Relationship & Substance Arcs ==========
-    console.log('Phase 3b: Relationship & Substance Arc Synthesis');
+    // ========== PHASE 3b: Relationship, Substance & Nervous-System Arcs ==========
+    console.log('Phase 3b: Relationship, Substance & Nervous-System Arc Synthesis');
     console.log('─'.repeat(40));
 
-    const [relationshipArcs, substanceArcs] = await Promise.all([
+    // Only (re)synthesize the overall nervous-system arc if months changed or forced
+    const nervousArcChanged = FORCE || processed > 0 || !existingNervousArc;
+
+    const [relationshipArcs, substanceArcs, nervousArc] = await Promise.all([
         synthesizeRelationshipArcs(aggregated.relationship_monthly),
-        synthesizeSubstanceArcs(aggregated.substance_monthly)
+        synthesizeSubstanceArcs(aggregated.substance_monthly),
+        nervousArcChanged ? synthesizeNervousSystemArc(aggregated.nervous_system) : Promise.resolve(existingNervousArc)
     ]);
 
     // Merge with existing arcs (new synthesis wins)
     aggregated.relationship_arcs = { ...existingRelationshipArcs, ...relationshipArcs };
     aggregated.substance_arcs = { ...existingSubstanceArcs, ...substanceArcs };
-    console.log(`\n  Relationship arcs: ${Object.keys(aggregated.relationship_arcs).length}, Substance arcs: ${Object.keys(aggregated.substance_arcs).length}\n`);
+    aggregated.nervous_system_arc = nervousArc || existingNervousArc;
+    console.log(`\n  Relationship arcs: ${Object.keys(aggregated.relationship_arcs).length}, Substance arcs: ${Object.keys(aggregated.substance_arcs).length}, Nervous-system arc: ${aggregated.nervous_system_arc ? 'yes' : 'no'}\n`);
 
     // ========== PHASE 4: People Analysis (Parallel) ==========
     console.log('Phase 4: People Analysis (parallel)');
@@ -1118,20 +1297,26 @@ async function main() {
     console.log('─'.repeat(40));
 
     try {
-        const overallInsights = await generateOverallInsights(aggregated);
+        const [overallInsights, selfInsight] = await Promise.all([
+            generateOverallInsights(aggregated),
+            generateSelfInsight(aggregated)
+        ]);
         const insightsOutput = {
             insights: overallInsights,
+            self_insight: selfInsight,
             monthly: aggregated.monthly,
             yearly_summaries: aggregated.yearly_summaries,
             relationship_monthly: aggregated.relationship_monthly,
             relationship_arcs: aggregated.relationship_arcs,
             substance_monthly: aggregated.substance_monthly,
             substance_arcs: aggregated.substance_arcs,
+            nervous_system_monthly: aggregated.nervous_system,
+            nervous_system_arc: aggregated.nervous_system_arc,
             events: aggregated.events.sort((a, b) => a.date?.localeCompare(b.date)),
             generated_at: new Date().toISOString()
         };
         fs.writeFileSync(OUTPUT.insights, JSON.stringify(insightsOutput, null, 2));
-        console.log(`  ✓ Generated overall insights`);
+        console.log(`  ✓ Generated overall insights + self-entity insight`);
         console.log(`  Saved: ${OUTPUT.insights}\n`);
     } catch (e) {
         console.error(`  ✗ Failed: ${e.message}\n`);
