@@ -65,9 +65,11 @@ const OUTPUT = {
     dashboard: path.join(OUTPUT_DIR, 'dashboard_data.json')
 };
 
-// Parallel processing config. The upstream proxy rate-limits aggressively, so
-// keep concurrency modest and lean on retry/backoff (below) rather than fan-out.
-const PARALLEL_LIMIT = 3;
+// Parallel processing config. The upstream proxy rate-limits aggressively, but
+// the retry/backoff below (429-aware, honors retry-after, 90s abort→retry) makes
+// over-shooting self-correcting rather than fatal — so fan out more and let 429s
+// throttle us back. Overridable via PARALLEL_LIMIT env var for tuning.
+const PARALLEL_LIMIT = Number(process.env.PARALLEL_LIMIT) || 8;
 const BATCH_SIZE = 30;
 const MAX_RETRIES = 6;
 // Abort any single request that hangs longer than this (ms), so a stuck

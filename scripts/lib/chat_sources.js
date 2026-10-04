@@ -77,7 +77,14 @@ function windowAroundSelf(messages, isMine, monthsPadding = MONTH_PAD_DEFAULT) {
 const nameIsMine = (name) => {
     if (!name) return false;
     const n = String(name).trim().toLowerCase();
-    return ME.names.includes(n) || ME.phones.some(p => n.includes(p));
+    if (ME.names.includes(n) || ME.phones.some(p => n.includes(p))) return true;
+    // Exports often decorate the display name with emoji/trailing tokens, e.g.
+    // "Marcus 🥰👋🏻" — strip to word tokens and match a configured name as the
+    // leading token so "marcus ..." still resolves to self. (Exact-match-only
+    // previously dropped 29 self WhatsApp messages under the decorated name.)
+    const tokens = n.replace(/[^\p{L}\p{N}\s]/gu, ' ').trim().split(/\s+/).filter(Boolean);
+    if (tokens.length && ME.names.includes(tokens[0])) return true;
+    return false;
 };
 
 /**
@@ -185,12 +192,22 @@ function loadWhatsApp(whatsappDir, { monthsPadding = MONTH_PAD_DEFAULT } = {}) {
 
             // Parse into messages, joining multi-line bodies onto the previous msg.
             const msgs = [];
+            // Dated system lines like "[9/11/25, 9:37:21 PM] - [Call]" and the
+            // "Messages and calls are end-to-end encrypted…" header have no
+            // "Sender:" so they don't match lineRe; without this guard they'd be
+            // appended verbatim into the previous real message, injecting
+            // timestamps/[Call] noise into its text.
+            const sysLineRe = /^\[\d{1,2}[./]\d{1,2}[./]\d{2,4},?\s+[^\]]+\]\s*-?\s*/;
+            const encNoticeRe = /end-to-end encrypted/i;
             for (const line of raw.split('\n')) {
                 const m = line.match(lineRe);
                 if (m) {
                     const ts = parseWhatsAppDate(m[1], m[2]);
                     msgs.push({ timestamp: ts, sender: m[3].trim(), text: m[4] });
                 } else if (msgs.length && line.trim()) {
+                    // Only join genuine continuation lines; drop dated system lines
+                    // and the encryption notice.
+                    if (sysLineRe.test(line) || encNoticeRe.test(line)) continue;
                     msgs[msgs.length - 1].text += '\n' + line;
                 }
             }
@@ -253,7 +270,15 @@ function loadTelegram(resultJsonPath, { monthsPadding = MONTH_PAD_DEFAULT } = {}
     if (!selfUserId) {
         console.warn('  Telegram: no self user id (personal_information.user_id or ME.telegramUserId empty) — no messages can be attributed to self; all marked isMine:false');
     }
-    const myId = selfUserId ? 'user' + selfUserId : null;
+    // Telegram exports store from_id either as a bare numeric id (e.g. 27397086)
+    // or prefixed ("user27397086"), depending on export version. Match BOTH by
+    // normalizing: strip a leading "user" and compare the digits. The old code
+    // only built the prefixed form and compared with ===, which matched 0 of the
+    // self messages in bare-id exports → every message mislabeled isMine:false.
+    const selfIdDigits = selfUserId ? String(selfUserId).replace(/^user/i, '') : null;
+    const isSelfFromId = (fromId) =>
+        selfIdDigits !== null && fromId != null &&
+        String(fromId).replace(/^user/i, '') === selfIdDigits;
     const chats = data.chats?.list || [];
     let skippedNoSelf = 0;
 
@@ -271,12 +296,12 @@ function loadTelegram(resultJsonPath, { monthsPadding = MONTH_PAD_DEFAULT } = {}
         if (!msgs.length) continue;
 
         if (isGroup) {
-            const hasSelf = msgs.some(m => m.fromId === myId);
+            const hasSelf = msgs.some(m => isSelfFromId(m.fromId));
             if (!hasSelf) { skippedNoSelf++; continue; }
         }
 
         let kept = msgs;
-        if (isGroup) kept = windowAroundSelf(msgs, m => m.fromId === myId, monthsPadding);
+        if (isGroup) kept = windowAroundSelf(msgs, m => isSelfFromId(m.fromId), monthsPadding);
 
         const participants = [...new Set(msgs.map(m => m.sender))];
         for (const m of kept) {
@@ -285,7 +310,7 @@ function loadTelegram(resultJsonPath, { monthsPadding = MONTH_PAD_DEFAULT } = {}
                 timestamp: m.timestamp,
                 source: 'telegram',
                 sender: m.sender,
-                isMine: myId !== null && m.fromId === myId,
+                isMine: isSelfFromId(m.fromId),
                 chatName: chat.name || 'Telegram chat',
                 participants
             });
@@ -328,7 +353,10 @@ function loadTwitter(dataDir) {
     }
 
     // Direct messages (1:1 or group the user is inherently a party to → keep all).
-    const dms = readYTD(path.join(dataDir, 'direct-messages.js'));
+    // Twitter exports split these across direct-messages.js (1:1) and
+    // direct-messages-group.js (group DMs); load both so group-DM content isn't lost.
+    const dmFiles = ['direct-messages.js', 'direct-messages-group.js'];
+    const dms = dmFiles.flatMap(f => readYTD(path.join(dataDir, f)));
     if (dms.length && !ME.twitterAccountId) {
         console.warn('  Twitter: ME.twitterAccountId is empty — cannot tell which DM messages are self; all DMs marked isMine:false');
     }

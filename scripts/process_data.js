@@ -430,90 +430,43 @@ function loadBeingJournals() {
     const entries = [];
     const seenDates = new Set();
 
-    // Load daily notes
-    const dailyDir = path.join(beingDir, 'Daily');
-    if (fs.existsSync(dailyDir)) {
-        for (const file of fs.readdirSync(dailyDir)) {
-            if (!file.match(/^\d{4}-\d{2}-\d{2}\.md$/)) continue;
-            const dateStr = file.replace('.md', '');
-            if (seenDates.has(dateStr)) continue;
-            seenDates.add(dateStr);
-            try {
-                const date = new Date(dateStr);
-                if (isNaN(date.getTime())) continue;
-                const text = fs.readFileSync(path.join(dailyDir, file), 'utf8');
-                if (text.trim().length < 20) continue;
-                const clean = text.replace(/\[\[([^\]]+)\]\]/g, '$1').replace(/#+\s/g, '').replace(/-\s\[.\]\s/g, '').trim();
-                entries.push({
-                    id: `journal-${dateStr}`,
-                    title: `Journal ${dateStr}`,
-                    created: date,
-                    messages: [{ text: clean.substring(0, 1500), timestamp: date, role: 'user' }],
-                    source: 'journal'
-                });
-            } catch (e) { /* skip */ }
-        }
-        console.log(`  Loaded ${entries.length} daily journal entries`);
-    }
-
-    // Load livingfully entries
-    const livingDir = path.join(beingDir, 'livingfully');
-    let livingCount = 0;
-    if (fs.existsSync(livingDir)) {
-        for (const file of fs.readdirSync(livingDir)) {
-            if (!file.match(/^\d{4}-\d{2}-\d{2}\.md$/)) continue;
-            const dateStr = file.replace('.md', '');
-            if (seenDates.has(dateStr)) continue;
-            seenDates.add(dateStr);
-            try {
-                const date = new Date(dateStr);
-                if (isNaN(date.getTime())) continue;
-                const text = fs.readFileSync(path.join(livingDir, file), 'utf8');
-                if (text.trim().length < 30) continue;
-                // Strip YAML frontmatter
-                const stripped = text.replace(/^---[\s\S]+?---\n/, '').trim();
-                if (stripped.length < 20) continue;
-                entries.push({
-                    id: `livingfully-${dateStr}`,
-                    title: `Livingfully ${dateStr}`,
-                    created: date,
-                    messages: [{ text: stripped.substring(0, 1500), timestamp: date, role: 'user' }],
-                    source: 'journal'
-                });
-                livingCount++;
-            } catch (e) { /* skip */ }
-        }
-        console.log(`  Loaded ${livingCount} livingfully journal entries`);
-    }
-
-    // Load therapy session notes
-    const therapyDir = path.join(beingDir, 'Therapy Sessions');
-    if (fs.existsSync(therapyDir)) {
-        for (const file of fs.readdirSync(therapyDir)) {
+    // Route all three journal dirs through the SHARED parseMarkdownEntry so this
+    // pipeline dates and selects exactly the same notes as analyze_all.js. The
+    // old bespoke loaders diverged: the livingfully loader only matched
+    // ^YYYY-MM-DD.md$ (missing frontmatter-dated notes) and its frontmatter strip
+    // (/^---[\s\S]+?---\n/) required a trailing newline, so ~828 frontmatter-only
+    // notes leaked raw YAML in as fake "entries". parseMarkdownEntry resolves the
+    // date (filename YYYY-MM-DD / DD.MM.YYYY / frontmatter created|date, else
+    // skip) and strips frontmatter tolerating EOF.
+    const journalDirs = [
+        { dir: 'Daily', prefix: 'journal' },
+        { dir: 'livingfully', prefix: 'livingfully' },
+        { dir: 'Therapy Sessions', prefix: 'therapy' }
+    ];
+    for (const { dir, prefix } of journalDirs) {
+        const fullDir = path.join(beingDir, dir);
+        if (!fs.existsSync(fullDir)) continue;
+        let count = 0;
+        for (const file of fs.readdirSync(fullDir)) {
             if (!file.endsWith('.md')) continue;
-            try {
-                const content = fs.readFileSync(path.join(therapyDir, file), 'utf8');
-                const dateMatch = file.match(/(\d{2})\.(\d{2})\.(\d{4})/);
-                let date;
-                if (dateMatch) {
-                    date = new Date(`${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`);
-                } else {
-                    // No parseable date in the filename: skip rather than dating
-                    // it today (which would pollute the current month's trend).
-                    continue;
-                }
-                if (isNaN(date.getTime())) continue;
-                if (content.trim().length > 20) {
-                    entries.push({
-                        id: `therapy-${file}`,
-                        title: `Therapy: ${file.replace('.md', '')}`,
-                        created: date,
-                        messages: [{ text: content.substring(0, 1500), timestamp: date, role: 'user' }],
-                        source: 'journal'
-                    });
-                }
-            } catch (e) { /* skip */ }
+            const rec = chatSources.parseMarkdownEntry(path.join(fullDir, file), file);
+            if (!rec) continue;
+            // Dedupe by resolved day so Daily/livingfully notes for the same date
+            // don't double-count (preserves the previous seenDates behavior).
+            const dateStr = rec.timestamp.toISOString().slice(0, 10);
+            const dedupeKey = `${prefix}:${dateStr}`;
+            if (seenDates.has(dedupeKey)) continue;
+            seenDates.add(dedupeKey);
+            entries.push({
+                id: `${prefix}-${dateStr}-${count}`,
+                title: `${prefix} ${dateStr}`,
+                created: rec.timestamp,
+                messages: [{ text: rec.text.substring(0, 1500), timestamp: rec.timestamp, role: 'user' }],
+                source: 'journal'
+            });
+            count++;
         }
+        console.log(`  Loaded ${count} ${dir} journal entries`);
     }
 
     console.log(`  → ${entries.length} journal/personal entries total`);
