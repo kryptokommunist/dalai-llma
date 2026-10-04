@@ -22,6 +22,29 @@ from datetime import datetime
 DATA_DIR = os.environ.get('DATA_DIR', './data')
 LLM_DIR = os.path.join(DATA_DIR, 'LLM Data')
 
+# Central-European zone abbreviations that strptime's %Z handles inconsistently:
+# on some hosts %Z silently drops the entry (ValueError), on others it parses but
+# ignores the offset — either way the result is host-dependent. The rest of the
+# pipeline is zone-naive (Search timestamps carry no zone at all), so we normalize
+# every Gemini timestamp the same way: strip the trailing zone token and parse the
+# remainder as a naive local datetime. This keeps entries that %Z would drop and
+# makes the result identical across hosts.
+_KNOWN_ZONES = {
+    'CET', 'CEST', 'GMT', 'UTC', 'BST', 'EST', 'EDT', 'PST', 'PDT',
+    'MST', 'MDT', 'CST', 'CDT', 'IST', 'JST', 'AEST', 'AEDT',
+}
+
+def parse_dt_with_zone(date_str, fmt):
+    """Parse a Gemini-activity datetime whose trailing token is a zone
+    abbreviation. Strip a recognized zone and parse naive so results are
+    host-independent; fall back to a plain %Z parse otherwise."""
+    parts = date_str.rsplit(' ', 1)
+    if len(parts) == 2 and parts[1].strip().upper() in _KNOWN_ZONES:
+        head = parts[0].strip()
+        base_fmt = fmt.replace(' %Z', '').strip()
+        return datetime.strptime(head, base_fmt)
+    return datetime.strptime(date_str, fmt)
+
 def save(data, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
@@ -64,8 +87,10 @@ def preprocess_gemini():
                 text = re.sub(r'<[^>]+>', ' ', raw).replace('\xa0', ' ').strip()
                 date_str = m.group(2).replace(' ', ' ').strip()
                 try:
-                    date = datetime.strptime(date_str, '%b %d, %Y, %I:%M:%S %p %Z')
-                    key = (date.isoformat(), text[:50])
+                    date = parse_dt_with_zone(date_str, '%b %d, %Y, %I:%M:%S %p %Z')
+                    # Full-timestamp + 120-char prefix: two distinct long prompts
+                    # at the same second no longer collapse on a 50-char prefix.
+                    key = (date.isoformat(), text[:120])
                     if key not in seen and len(text) > 10:
                         seen.add(key)
                         items.append({'text': text[:800], 'timestamp': date.isoformat(), 'source': 'gemini'})
@@ -145,29 +170,76 @@ def decode_header_str(h):
     except Exception:
         return str(h)
 
+def html_to_text(html):
+    """Crude HTML→text: drop script/style, convert <br>/<p> to newlines, strip
+    remaining tags, unescape entities. Used only as a fallback when an email has
+    no text/plain part (HTML-only messages otherwise yield an empty body)."""
+    html = re.sub(r'(?is)<(script|style)[^>]*>.*?</\1>', ' ', html)
+    html = re.sub(r'(?i)<br\s*/?>', '\n', html)
+    html = re.sub(r'(?i)</p\s*>', '\n', html)
+    text = re.sub(r'<[^>]+>', ' ', html)
+    return unescape(text)
+
+# Reply/forward header lines leak the recipient and quoted-conversation metadata
+# into the body (and thus into sentiment/word-freq). Strip them.
+_REPLY_HEADER_RE = re.compile(
+    r'(?im)^\s*(?:'
+    r'On .{0,120}\bwrote:\s*|'                       # "On <date>, <name> wrote:"
+    r'Am .{0,120}\bschrieb\b.{0,80}:\s*|'            # German "Am <date> schrieb <name>:"
+    r'-{2,}\s*Forwarded message\s*-{2,}.*|'          # forwarded banner
+    r'-{2,}\s*Original Message\s*-{2,}.*|'
+    r'(?:From|To|Sent|Subject|Cc|Date|Von|An|Betreff|Gesendet)\s*:.*'  # quoted hdr lines
+    r')$'
+)
+
+def clean_body(body):
+    # Remove quoted (">") lines and leaked reply/forward header lines.
+    lines = []
+    for l in body.split('\n'):
+        if l.strip().startswith('>'):
+            continue
+        if _REPLY_HEADER_RE.match(l):
+            continue
+        lines.append(l)
+    # Collapse runs of blank lines.
+    text = re.sub(r'\n{3,}', '\n\n', '\n'.join(lines))
+    return text[:600].strip()
+
 def get_plain_text(msg):
-    body = ''
+    plain = ''
+    html = ''
     try:
         if msg.is_multipart():
             for part in msg.walk():
-                if part.get_content_type() == 'text/plain':
-                    try:
-                        payload = part.get_payload(decode=True)
-                        charset = part.get_content_charset() or 'utf-8'
-                        body = payload.decode(charset, errors='replace')
-                        break
-                    except Exception:
-                        pass
+                ctype = part.get_content_type()
+                if ctype not in ('text/plain', 'text/html'):
+                    continue
+                try:
+                    payload = part.get_payload(decode=True)
+                    if payload is None:
+                        continue
+                    charset = part.get_content_charset() or 'utf-8'
+                    decoded = payload.decode(charset, errors='replace')
+                except Exception:
+                    continue
+                if ctype == 'text/plain' and not plain:
+                    plain = decoded
+                elif ctype == 'text/html' and not html:
+                    html = decoded
         else:
             payload = msg.get_payload(decode=True)
             if payload:
                 charset = msg.get_content_charset() or 'utf-8'
-                body = payload.decode(charset, errors='replace')
+                decoded = payload.decode(charset, errors='replace')
+                if msg.get_content_type() == 'text/html':
+                    html = decoded
+                else:
+                    plain = decoded
     except Exception:
         pass
-    # Remove quoted lines
-    lines = [l for l in body.split('\n') if not l.strip().startswith('>')]
-    return '\n'.join(lines)[:600].strip()
+    # Prefer plain text; fall back to HTML-derived text for HTML-only emails.
+    body = plain if plain.strip() else html_to_text(html)
+    return clean_body(body)
 
 def preprocess_emails():
     mbox_path = os.path.join(LLM_DIR, 'Sent Items.partial.mbox', 'mbox')

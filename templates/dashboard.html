@@ -1396,6 +1396,19 @@
             </div>
         </div>
 
+        <!-- Social Clusters / Communities -->
+        <div class="chart-card full-width" id="clustersCard" style="margin-bottom: 2rem; display: none;">
+            <button class="chart-info-btn" onclick="showInfo('clusters')">i</button>
+            <div class="chart-title">Social Clusters &amp; Communities</div>
+            <div class="chart-subtitle">Communities detected from group-chat co-membership and co-mentions. Click a cluster for detail.</div>
+            <div class="chart-container">
+                <canvas id="clustersBubbleChart"></canvas>
+            </div>
+            <div id="clustersCardList" style="display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1rem;">
+                <!-- Dynamically populated by renderClusters() -->
+            </div>
+        </div>
+
         <div class="chart-card" style="margin-bottom: 2rem;">
             <button class="chart-info-btn" onclick="showInfo('monthly')">i</button>
             <div class="chart-title">Monthly Summary</div>
@@ -1747,9 +1760,11 @@
             container.innerHTML = filteredData.map((m, i) => {
                 const color = m.wellbeing >= 70 ? '#22c55e' : m.wellbeing >= 50 ? '#eab308' : m.wellbeing >= 40 ? '#f97316' : '#ef4444';
                 const summary = getMonthSummary(m);
+                const notable = monthOutlierTitle(m.month);
+                const titleAttr = notable ? ` title="${escapeAttr(notable)}"` : '';
                 return `
-                <div class="month-card" style="border-color: ${color}; cursor: pointer;" onclick="showMonthDetail('${m.month}')">
-                    <div class="month-name">${m.label}</div>
+                <div class="month-card" style="border-color: ${color}; cursor: pointer;" onclick="showMonthDetail('${m.month}')"${titleAttr}>
+                    <div class="month-name">${m.label}${notable ? ' <span style="color: var(--accent-blue); font-size: 0.7rem;" title="Notable outliers this month">◆</span>' : ''}</div>
                     <div class="month-stats">
                         <div class="month-stat"><span>Wellbeing</span><span style="color: ${color};">${m.wellbeing}</span></div>
                         <div class="month-stat"><span>Sentiment</span><span>${m.sentiment >= 0 ? '+' : ''}${m.sentiment.toFixed(2)}</span></div>
@@ -1858,6 +1873,7 @@
                 <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color); font-size: 0.75rem; color: var(--text-secondary);">
                     Late night messages: ${monthData.lateNight}% | Conversations: ${monthData.convos}
                 </div>
+                ${monthOutlierHTML(monthKey)}
             `;
 
             document.getElementById('modalTitle').textContent = title;
@@ -2014,11 +2030,12 @@
             }
 
             // Social connection insights
-            const socialPeople = ['sarah', 'dennis', 'dominik', 'liliia', 'julie'].filter(p => allPeopleData[p]?.byMonth[current.month] > 0);
+            const nonSocial = new Set(['therapist', 'therapy', 'mother', 'father', 'brother', 'sister', 'myself', 'self', 'me']);
+            const socialPeople = Object.keys(allPeopleData || {}).filter(p => !nonSocial.has(p.toLowerCase()) && (allPeopleData[p]?.byMonth?.[current.month] > 0));
             if (socialPeople.length >= 2) {
-                focusItems.push({ text: '<strong>Active social connections</strong> - engaging with ' + socialPeople.length + ' friends this month', timeframe: 'current' });
+                focusItems.push({ text: '<strong>Active social connections</strong> - engaging with ' + socialPeople.length + ' contacts this month', timeframe: 'current' });
             } else if (socialPeople.length === 0 && metrics.wellbeing.current < 60) {
-                actionItems.push({ text: '<strong>Reach out to friends</strong> - no friend mentions this month, connection may help' });
+                actionItems.push({ text: '<strong>Reach out to friends</strong> - low social mentions this month, connection may help' });
             }
 
             // Family dynamics
@@ -2325,9 +2342,9 @@
 
                     <h4>Score ranges</h4>
                     <ul>
-                        <li><strong>0-40:</strong> Crisis/high distress (red) - Dec/Jan</li>
+                        <li><strong>0-40:</strong> Crisis/high distress (red)</li>
                         <li><strong>40-60:</strong> Struggling/recovering (orange)</li>
-                        <li><strong>60-80:</strong> Stable/improving (green) - Mar</li>
+                        <li><strong>60-80:</strong> Stable/improving (green)</li>
                         <li><strong>80-100:</strong> Thriving (bright green)</li>
                     </ul>
                 `
@@ -2343,38 +2360,30 @@
 
                     <div class="formula-box">Trend = (current_month_wellbeing - first_month_wellbeing) / months_elapsed</div>
 
-                    <h4>Current calculation</h4>
-                    <ul>
-                        <li>December wellbeing: 32 (crisis low)</li>
-                        <li>March wellbeing: 77</li>
-                        <li>Change: <strong>+45 points</strong> over ~3 months</li>
-                        <li>Rate: ~+15 points/month</li>
-                    </ul>
-
                     <h4>Interpretation</h4>
-                    <p><strong>Improving</strong> = positive slope over 3+ consecutive weeks. The late February inflection point (therapy termination) is clearly visible in the data.</p>
+                    <p><strong>Improving</strong> = positive slope over 3+ consecutive weeks. <strong>Declining</strong> = negative slope. Stable indicates a plateau.</p>
                 `
             },
             timeline: {
                 title: 'Sentiment & Wellbeing Timeline',
                 body: `
                     <h4>What it shows</h4>
-                    <p>Three overlaid metrics tracked weekly across the 90-day period:</p>
+                    <p>Three overlaid metrics tracked across time:</p>
 
                     <h4>Purple line: Sentiment</h4>
-                    <p>Weekly sentiment score (-1 to +1). Ratio of hopeful vs despair language. W01 hit -0.92 (almost pure despair), March reached +1.0 (pure hope).</p>
+                    <p>Weekly sentiment score (-1 to +1). Ratio of hopeful vs despair language.</p>
 
                     <h4>Blue line: Wellbeing</h4>
                     <p>Weekly wellbeing score (0-100). Composite heavily weighted toward sentiment (45%) and agency (15%).</p>
 
                     <h4>Green dashed line: Agency %</h4>
-                    <p>Ratio of empowered language ("I can", "I will", "I want") vs victim language ("I can't", "stuck", "trapped"). Low agency periods correlate with crisis months, high agency with recovery.</p>
+                    <p>Ratio of empowered language ("I can", "I will", "I want") vs victim language ("I can't", "stuck", "trapped"). Low agency periods correlate with distress, high agency with resilience.</p>
 
                     <h4>How to read it</h4>
                     <ul>
-                        <li>W01 shows the crisis low: sentiment -0.92, wellbeing 23, agency 33%</li>
-                        <li>The dramatic upturn begins at W09 (late Feb) - therapy termination</li>
-                        <li>March shows sustained positive sentiment (0.64-1.0) and high agency</li>
+                        <li>Look for divergence between sentiment and agency</li>
+                        <li>Identify inflection points where sustained recovery begins</li>
+                        <li>Correlate dips and spikes with life events</li>
                     </ul>
                 `
             },
@@ -2391,8 +2400,8 @@
                         <li><strong style="color: #22c55e;">Green (60-100):</strong> Stable to thriving</li>
                     </ul>
 
-                    <h4>The "+14 points" indicator</h4>
-                    <p>Shows improvement from your December baseline (53) to current (67). This delta is more meaningful than the absolute number.</p>
+                    <h4>The change indicator</h4>
+                    <p>Shows improvement or change from your baseline to current score. This delta is more meaningful than the absolute number.</p>
                 `
             },
             emotions: {
@@ -2409,7 +2418,7 @@
                     </ul>
 
                     <h4>Key insight</h4>
-                    <p>Notice how March shows a dramatic drop in negative words (183→35) while maintaining positive expression. This isn't suppression - your neutral category increased, suggesting more cognitive/exploratory conversations rather than emotional processing.</p>
+                    <p>Shifts between positive, negative, and neutral categories indicate changes in cognitive and emotional processing style over time.</p>
                 `
             },
             wordcloud: {
@@ -2420,7 +2429,7 @@
 
                     <h4>Color coding</h4>
                     <ul>
-                        <li><strong style="color: #22c55e;">Green:</strong> Positive/growth words (friends, better, healing, Alexander)</li>
+                        <li><strong style="color: #22c55e;">Green:</strong> Positive/growth words (friends, better, healing, connection)</li>
                         <li><strong style="color: #ef4444;">Red:</strong> Distress words (alone, pain, trauma, anxiety)</li>
                         <li><strong style="color: #4a9eff;">Blue:</strong> Neutral/topic words</li>
                     </ul>
@@ -2429,7 +2438,7 @@
                     <p>Excludes common stop words (the, a, is, etc.) and counts remaining words across all messages. Top 35 words displayed.</p>
 
                     <h4>Interpretation</h4>
-                    <p>The prominence of "sleep", "therapy", "friends", and "system" reflects your major conversation themes. Word clouds show what you're talking <em>about</em>, while sentiment shows how you <em>feel</em> about it.</p>
+                    <p>Word clouds show what you're talking <em>about</em>, while sentiment shows how you <em>feel</em> about it.</p>
                 `
             },
             activity: {
@@ -2448,8 +2457,8 @@
 
                     <h4>What patterns mean</h4>
                     <ul>
-                        <li><strong>W08 (21 messages):</strong> Lowest week - often indicates either stability (less need for processing) or avoidance</li>
-                        <li><strong>W10 (198 messages):</strong> Peak activity - correlates with the therapy termination and Alexander Technique start</li>
+                        <li><strong>Low activity weeks:</strong> Often indicate either stability (less need for external processing) or withdrawal</li>
+                        <li><strong>Peak activity weeks:</strong> Correlate with periods of intense reflection or transition</li>
                     </ul>
                 `
             },
@@ -2486,7 +2495,7 @@
                         <li><strong style="color: #ef4444;">Health:</strong> Medical events, appointments, physical symptoms</li>
                         <li><strong style="color: #a855f7;">Therapy:</strong> Sessions, therapeutic milestones, mental health</li>
                         <li><strong style="color: #22c55e;">Social:</strong> Friends, parties, social events</li>
-                        <li><strong style="color: #ec4899;">Relationship:</strong> Breakup, romantic milestones, ex contact</li>
+                        <li><strong style="color: #ec4899;">Relationship:</strong> Romantic milestones, relationship shifts</li>
                         <li><strong style="color: #f97316;">Housing:</strong> Flat, moving, landlord interactions</li>
                         <li><strong style="color: #4a9eff;">Work:</strong> Career, job tasks, professional</li>
                     </ul>
@@ -2513,11 +2522,11 @@
                     <h4>Interpretation</h4>
                     <p>Low scores indicate healthier communication patterns. High victim scores often correlate with crisis periods. Spikes in persecutor language may indicate frustration with boundaries.</p>
 
-                    <h4>Your patterns</h4>
+                    <h4>Pattern Guidelines</h4>
                     <ul>
-                        <li>Feb 2026 shows victim spike (9.3) - therapy ending processing</li>
-                        <li>Elevated victim pattern in crisis period</li>
-                        <li>Jun 2025 persecutor spike (7.8) - boundary frustrations</li>
+                        <li>Spikes in victim language often reflect feelings of helplessness or low perceived agency</li>
+                        <li>Elevated persecutor scores indicate boundary conflicts or frustration</li>
+                        <li>High rescuer patterns suggest over-functioning or taking excessive responsibility for others</li>
                     </ul>
                 `
             },
@@ -2629,6 +2638,23 @@
                     </ul>
                 `
             },
+            clusters: {
+                title: 'Social Clusters & Communities',
+                body: `
+                    <h4>What it shows</h4>
+                    <p>Social communities detected by Claude from two signals: <strong>co-membership</strong> (people appearing together in the same group chats) and <strong>co-mention</strong> (people referenced in the same month).</p>
+
+                    <h4>Reading it</h4>
+                    <ul>
+                        <li>Each bubble / card is a cluster — a friend group, scene, family, or circle</li>
+                        <li>Bubble size reflects how many people are in the cluster</li>
+                        <li>Click a cluster card for its members and month-by-month activity</li>
+                    </ul>
+
+                    <h4>Note</h4>
+                    <p>Clusters are grounded only in co-occurrence data — no relationships are invented. People may belong to more than one cluster.</p>
+                `
+            },
             monthly: {
                 title: 'Monthly Summary',
                 body: `
@@ -2722,14 +2748,6 @@
                         <li><strong>Identifying causal patterns:</strong> Not just correlation, but what drove changes</li>
                     </ul>
 
-                    <h4>The Therapy Finding</h4>
-                    <p>The most significant finding: <strong>4 years of IFS therapy correlated with decline, not improvement</strong>. This was discovered by:</p>
-                    <ul>
-                        <li>Tracking therapy-related conversation titles over time</li>
-                        <li>Comparing language before/after key events</li>
-                        <li>Reading your own termination email analysis</li>
-                    </ul>
-
                     <h4>Evidence standard</h4>
                     <p>The language shift table uses actual word counts from conversations:</p>
                     <div class="formula-box">
@@ -2737,9 +2755,9 @@
                     </div>
 
                     <h4>Methodology</h4>
-                    <p>Analysis performed via Node.js scripts reading conversations.json directly. Key functions:</p>
+                    <p>Analysis performed via Node.js scripts reading message exports directly. Key functions:</p>
                     <ul>
-                        <li><code>analyze_convos.js</code> - Title and content pattern matching</li>
+                        <li><code>analyze_all.js</code> - LLM categorizations and narrative insights</li>
                         <li><code>process_data.js</code> - Sentiment and agency calculations</li>
                     </ul>
                 `
@@ -2748,10 +2766,10 @@
                 title: 'Wellbeing Projection',
                 body: `
                     <h4>What it shows</h4>
-                    <p>Projected wellbeing scores through December 2026, based on your current improvement trajectory.</p>
+                    <p>Projected wellbeing scores based on your trajectory and momentum.</p>
 
                     <h4>How it's calculated</h4>
-                    <p>Uses your current monthly improvement rate with logarithmic diminishing returns (improvements slow as you approach higher scores).</p>
+                    <p>Uses your recent monthly improvement rate with logarithmic diminishing returns (improvements slow as you approach higher scores).</p>
 
                     <div class="formula-box">
 Future_score = Current + (rate × months × decay_factor)<br>
@@ -2760,14 +2778,14 @@ Where decay_factor = 1 - (current_score / 100)
 
                     <h4>Assumptions</h4>
                     <ul>
-                        <li>Current trajectory continues (+7%/month base rate)</li>
+                        <li>Trajectory continues at base rate</li>
                         <li>Returns diminish as wellbeing increases</li>
                         <li>No major life disruptions</li>
-                        <li>Continued engagement with beneficial practices (AT, etc.)</li>
+                        <li>Continued engagement with supportive practices</li>
                     </ul>
 
                     <h4>Confidence</h4>
-                    <p>Projections become less reliable further out. The Dec 2026 estimate of 78 has a reasonable confidence interval of ±10 points.</p>
+                    <p>Projections become less reliable further out into the future.</p>
                 `
             }
         };
@@ -2879,6 +2897,36 @@ Where decay_factor = 1 - (current_score / 100)
                 }
             }
 
+            // Feature 2: per-person 8-state nervous-system chart (from person_insights
+            // nervous_monthly, produced in the existing LLM relationship pass).
+            const pInsight = (typeof personInsightsData !== 'undefined' && personInsightsData)
+                ? personInsightsData[personId] : null;
+            const nervMonthly = pInsight && pInsight.nervous_monthly ? pInsight.nervous_monthly : null;
+            let nervousChartSection = '';
+            if (nervMonthly && Object.keys(nervMonthly).length >= 2) {
+                nervousChartSection = `
+                    <h4>Nervous-System States (with ${person.name})</h4>
+                    <div style="height: 220px; margin-bottom: 1rem;">
+                        <canvas id="personNervousChart"></canvas>
+                    </div>`;
+            }
+
+            // Feature 1: per-person mention spikes/dips (detected + explained in Phase 1c).
+            const mentionOutliers = pInsight && pInsight.outliers ? pInsight.outliers.mentions : null;
+            let mentionOutlierSection = '';
+            if (mentionOutliers && Object.keys(mentionOutliers).length) {
+                const rows = Object.entries(mentionOutliers)
+                    .sort((a, b) => a[0].localeCompare(b[0]))
+                    .map(([month, o]) => {
+                        const spike = o.direction === 'spike';
+                        const col = spike ? '#22c55e' : '#ef4444';
+                        const arrow = spike ? '▲' : '▼';
+                        const expl = o.explanation ? `: ${escapeAttr(o.explanation)}` : '';
+                        return `<div style="padding: 0.35rem 0; font-size: 0.82rem;"><span style="color:${col}; font-weight:700;">${arrow} ${month}</span> <span style="color: var(--text-secondary);">${o.value} mentions${expl}</span></div>`;
+                    }).join('');
+                mentionOutlierSection = `<h4>Mention spikes &amp; dips</h4><div style="margin-bottom: 1rem;">${rows}</div>`;
+            }
+
             // Build monthly breakdown
             const monthlyBreakdown = Object.entries(person.byMonth)
                 .filter(([month]) => month >= startMonth && month <= endMonth)
@@ -2923,6 +2971,10 @@ Where decay_factor = 1 - (current_score / 100)
 
                 ${nervousSection}
 
+                ${nervousChartSection}
+
+                ${mentionOutlierSection}
+
                 <button onclick="generatePersonInsights('${personId}')"
                     id="generateInsightsBtn"
                     style="width: 100%; padding: 0.75rem 1rem; background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue)); color: white; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-top: 1rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
@@ -2934,6 +2986,53 @@ Where decay_factor = 1 - (current_score / 100)
             document.getElementById('modalTitle').textContent = person.name;
             document.getElementById('modalBody').innerHTML = body;
             document.getElementById('infoModal').classList.add('active');
+
+            // Instantiate the per-person 8-state nervous-system chart (Feature 2),
+            // reusing the global NS state order + colors.
+            if (nervMonthly && Object.keys(nervMonthly).length >= 2) {
+                renderPersonNervousChart(nervMonthly);
+            }
+        }
+
+        let personNervousChart = null;
+        function renderPersonNervousChart(nervMonthly) {
+            const canvas = document.getElementById('personNervousChart');
+            if (!canvas || typeof Chart === 'undefined') return;
+            if (personNervousChart) { personNervousChart.destroy(); personNervousChart = null; }
+
+            // centered first (regulated anchor), then the 7 reactive states — same as global chart
+            const NS_STATES = ['centered', 'fawn', 'dominate', 'fight', 'flight', 'freeze', 'avoid', 'anxious'];
+            const months = Object.keys(nervMonthly).sort();
+            const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+            personNervousChart = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: months.map(m => { const [y, mo] = m.split('-'); return `${monthNames[parseInt(mo)-1]} ${y.slice(2)}`; }),
+                    datasets: NS_STATES.map(state => ({
+                        label: state.charAt(0).toUpperCase() + state.slice(1),
+                        data: months.map(m => nervMonthly[m]?.scores?.[state] ?? null),
+                        borderColor: NS_STATE_COLORS[state],
+                        backgroundColor: state === 'centered' ? 'rgba(20, 184, 166, 0.12)' : 'transparent',
+                        borderWidth: state === 'centered' ? 3 : 1.5,
+                        fill: state === 'centered',
+                        tension: 0.3,
+                        spanGaps: true,
+                        pointRadius: 0,
+                        pointHoverRadius: 4
+                    }))
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } },
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af', maxRotation: 45, minRotation: 45, font: { size: 9 } } }
+                    },
+                    plugins: { legend: { labels: { color: '#9ca3af', boxWidth: 12, font: { size: 9 } } } }
+                }
+            });
         }
 
         // "Relationship to Self" as a first-class entity — content comes entirely
@@ -2974,9 +3073,9 @@ Where decay_factor = 1 - (current_score / 100)
         }
 
         // LLM API configuration
-        const LLM_API_URL = 'http://localhost:9988/anthropic/v1/messages';
-        const LLM_API_KEY = 'sk-aB1cD2eF3gH4jK5lM6nP7qR8sT9uV0wX1yZ2bC3nM4pK5sL6';
-        const LLM_MODEL = 'anthropic--claude-4.5-sonnet';
+        const LLM_API_URL = window.LLM_API_URL || 'http://localhost:9988/anthropic/v1/messages';
+        const LLM_API_KEY = window.LLM_API_KEY || '';
+        const LLM_MODEL = window.LLM_MODEL || 'claude-3-5-sonnet-20241022';
 
         // Cache for LLM insights data - embedded by build script or loaded via fetch
         /* __LLM_INSIGHTS_DATA__ */
@@ -3114,22 +3213,29 @@ Where decay_factor = 1 - (current_score / 100)
         Chart.defaults.color = '#9090a0';
         Chart.defaults.borderColor = '#2a2a3a';
 
-        // Key events for timeline annotations - uses month keys, filtered dynamically
-        const chartKeyEvents = [
-            { month: '2024-08', label: 'Started Claude', color: '#4a9eff', category: 'work' },
-            { month: '2024-11', label: 'SAP application', color: '#4a9eff', category: 'work' },
-            { month: '2024-12', label: 'December crisis', color: '#ef4444', category: 'health' },
-            { month: '2025-01', label: 'Recovery begins', color: '#22c55e', category: 'health' },
-            { month: '2025-03', label: '30th birthday', color: '#22c55e', category: 'social' },
-            { month: '2025-06', label: 'Trauma work resumes', color: '#a855f7', category: 'therapy' },
-            { month: '2025-07', label: 'BREAKUP', color: '#ec4899', category: 'relationship' },
-            { month: '2025-09', label: 'Friends after 30', color: '#22c55e', category: 'social' },
-            { month: '2025-10', label: 'Peak usage', color: '#4a9eff', category: 'work' },
-            { month: '2025-12', label: 'Ankle fracture', color: '#ef4444', category: 'health' },
-            { month: '2026-01', label: 'Surgery recovery', color: '#ef4444', category: 'health' },
-            { month: '2026-02', label: 'Therapy ended', color: '#f97316', category: 'therapy' },
-            { month: '2026-03', label: 'Alexander Technique', color: '#22c55e', category: 'therapy' }
-        ];
+        // Key events for timeline annotations - dynamically generated from injected allEvents data
+        const EVENT_CATEGORY_COLORS = {
+            work: '#4a9eff',
+            health: '#ef4444',
+            therapy: '#a855f7',
+            social: '#22c55e',
+            relationship: '#ec4899',
+            other: '#9ca3af'
+        };
+
+        // Social-cluster palette + chart handle. Declared here (module scope, early)
+        // because renderClusters() runs during the initial updateDashboard() pass,
+        // before the Feature-3 block lower down would execute — a `const` there is in
+        // its temporal dead zone at call time and throws. Keep these above init.
+        let clustersBubbleChart = null;
+        const CLUSTER_COLORS = ['#4a9eff', '#a855f7', '#14b8a6', '#f59e0b', '#ef4444', '#22c55e', '#eab308', '#8b5cf6'];
+
+        const chartKeyEvents = (typeof allEvents !== 'undefined' ? allEvents : []).map(e => ({
+            month: e.month || (e.date ? e.date.substring(0, 7) : ''),
+            label: e.title || 'Event',
+            color: EVENT_CATEGORY_COLORS[e.category] || '#4a9eff',
+            category: e.category || 'other'
+        }));
 
         // Generate annotation objects for Chart.js based on current filtered range
         function generateEventAnnotations(visible) {
@@ -3200,6 +3306,15 @@ Where decay_factor = 1 - (current_score / 100)
                 plugins: {
                     legend: {
                         position: 'top'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            afterBody: (items) => {
+                                if (!items || !items.length) return [];
+                                const month = filteredData[items[0].dataIndex]?.month;
+                                return outlierLinesFor(month, ['sentiment', 'wellbeing', 'messages', 'agency', 'events']);
+                            }
+                        }
                     },
                     annotation: {
                         annotations: {}
@@ -3869,6 +3984,82 @@ Where decay_factor = 1 - (current_score / 100)
         // ============================================
         // CATEGORY ANALYSIS CHARTS
         // ============================================
+
+        // ---- Outlier tooltip helpers -------------------------------------
+        // All numeric-series outliers (sentiment, wellbeing, messages, agency,
+        // victim_score, empowered_score, nervous_<state>, cat_<cat>,
+        // substance_count, events) live in ONE place, keyed by metric:
+        //   categoryData.monthly[YYYY-MM].outliers.items[metric]
+        //     => { direction, magnitude, value, method, explanation }
+        // Explanation text is LLM-generated and injected via categoryData —
+        // never hardcoded here.
+        function getOutlierItems(monthKey) {
+            if (!monthKey || !categoryData || !categoryData.monthly) return null;
+            return categoryData.monthly[monthKey]?.outliers?.items || null;
+        }
+        function outlierLinesFor(monthKey, metrics) {
+            const items = getOutlierItems(monthKey);
+            if (!items) return [];
+            const lines = [];
+            for (const metric of metrics) {
+                const it = items[metric];
+                if (!it || !it.explanation) continue;
+                const arrow = it.direction === 'spike' ? '▲' : '▼';
+                lines.push(`${arrow} ${metricLabel(metric)}: ${it.explanation}`);
+            }
+            return lines;
+        }
+        function metricLabel(metric) {
+            const map = {
+                sentiment: 'Sentiment', wellbeing: 'Wellbeing', messages: 'Activity',
+                agency: 'Agency', victim_score: 'Victim', empowered_score: 'Empowered',
+                substance_count: 'Substances', events: 'Events'
+            };
+            if (map[metric]) return map[metric];
+            if (metric.startsWith('nervous_')) return metric.slice(8);
+            if (metric.startsWith('cat_')) return metric.slice(4);
+            return metric;
+        }
+        function escapeAttr(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+                .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+        // Plaintext summary of ALL flagged metrics for a month, for a title= tooltip.
+        function monthOutlierTitle(monthKey) {
+            const items = getOutlierItems(monthKey);
+            if (!items) return '';
+            const lines = [];
+            for (const [metric, it] of Object.entries(items)) {
+                if (!it || !it.explanation) continue;
+                const arrow = it.direction === 'spike' ? '▲' : '▼';
+                lines.push(`${arrow} ${metricLabel(metric)}: ${it.explanation}`);
+            }
+            return lines.join('\n');
+        }
+        // HTML chip list of a month's outliers for the month-detail modal.
+        function monthOutlierHTML(monthKey) {
+            const items = getOutlierItems(monthKey);
+            if (!items) return '';
+            const rows = [];
+            for (const [metric, it] of Object.entries(items)) {
+                if (!it || !it.explanation) continue;
+                const spike = it.direction === 'spike';
+                const col = spike ? '#22c55e' : '#ef4444';
+                const arrow = spike ? '▲' : '▼';
+                rows.push(`
+                    <div style="display:flex; gap:0.5rem; align-items:flex-start; padding:0.4rem 0;">
+                        <span style="color:${col}; font-weight:700;">${arrow} ${escapeAttr(metricLabel(metric))}</span>
+                        <span style="color: var(--text-secondary); font-size:0.85rem;">${escapeAttr(it.explanation)}</span>
+                    </div>`);
+            }
+            if (!rows.length) return '';
+            return `
+                <div style="margin: 1.25rem 0;">
+                    <h3 style="font-size: 0.9rem; margin-bottom: 0.5rem; color: var(--accent-blue);">Notable this month</h3>
+                    ${rows.join('')}
+                </div>`;
+        }
+
         async function loadCategoryAnalysis() {
             // Check if data was embedded by build script
             if (categoryData) {
@@ -3923,6 +4114,7 @@ Where decay_factor = 1 - (current_score / 100)
             const rangeTotals = {};
             rangeMonths.forEach(m => {
                 Object.entries(categories[m] || {}).forEach(([cat, count]) => {
+                    if (cat === 'outliers') return; // sidecar, not a category count
                     rangeTotals[cat] = (rangeTotals[cat] || 0) + count;
                 });
             });
@@ -4024,6 +4216,14 @@ Where decay_factor = 1 - (current_score / 100)
                         plugins: {
                             legend: {
                                 labels: { color: '#9ca3af' }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    afterBody: (tipItems) => {
+                                        if (!tipItems || !tipItems.length) return [];
+                                        return outlierLinesFor(months[tipItems[0].dataIndex], ['victim_score', 'empowered_score']);
+                                    }
+                                }
                             }
                         }
                     }
@@ -4085,7 +4285,16 @@ Where decay_factor = 1 - (current_score / 100)
                             }
                         },
                         plugins: {
-                            legend: { labels: { color: '#9ca3af', boxWidth: 12, font: { size: 10 } } }
+                            legend: { labels: { color: '#9ca3af', boxWidth: 12, font: { size: 10 } } },
+                            tooltip: {
+                                callbacks: {
+                                    afterBody: (tipItems) => {
+                                        if (!tipItems || !tipItems.length) return [];
+                                        const month = nsMonths[tipItems[0].dataIndex];
+                                        return outlierLinesFor(month, NS_STATES.map(s => `nervous_${s}`));
+                                    }
+                                }
+                            }
                         }
                     }
                 });
@@ -4103,7 +4312,8 @@ Where decay_factor = 1 - (current_score / 100)
 
             // Category Over Time - Stacked Area Chart (filtered by date range)
             const catMonths = rangeMonths; // Use the already filtered months
-            const allCats = [...new Set(catMonths.flatMap(m => Object.keys(categories[m] || {})))];
+            // Exclude the 'outliers' sidecar key — categories[m] is otherwise a flat count map.
+            const allCats = [...new Set(catMonths.flatMap(m => Object.keys(categories[m] || {}).filter(k => k !== 'outliers')))];
 
             const ctx3 = document.getElementById('categoryTimeChart');
             if (ctx3 && catMonths.length > 0) {
@@ -4160,6 +4370,11 @@ Where decay_factor = 1 - (current_score / 100)
                             tooltip: {
                                 mode: 'index',
                                 callbacks: {
+                                    afterBody: (items) => {
+                                        if (!items || !items.length) return [];
+                                        const month = catMonths[items[0].dataIndex];
+                                        return outlierLinesFor(month, sortedCats.map(c => `cat_${c}`).concat('substance_count'));
+                                    },
                                     footer: (items) => {
                                         const total = items.reduce((sum, item) => sum + item.raw, 0);
                                         return `Total: ${total} messages`;
@@ -4170,10 +4385,137 @@ Where decay_factor = 1 - (current_score / 100)
                     }
                 });
             }
+
+            // Feature 3: social clusters
+            renderClusters();
         }
 
-        // Load category analysis on page load
-        loadCategoryAnalysis();
+        // ---- Social clusters (Feature 3) ---------------------------------
+        // CLUSTER_COLORS / clustersBubbleChart are declared earlier (near
+        // EVENT_CATEGORY_COLORS) so they're initialized before the init-time
+        // renderClusters() call — do not redeclare them here.
+
+        function clusterActivityMonths(cluster) {
+            return Object.keys(cluster.months || {}).sort();
+        }
+
+        function renderClusters() {
+            const card = document.getElementById('clustersCard');
+            const list = document.getElementById('clustersCardList');
+            const clusters = (categoryData && categoryData.social_clusters && Array.isArray(categoryData.social_clusters.clusters))
+                ? categoryData.social_clusters.clusters : [];
+            if (!card || !list) return;
+
+            if (!clusters.length) {
+                card.style.display = 'none';
+                return;
+            }
+            card.style.display = '';
+
+            // Cluster cards
+            list.innerHTML = clusters.map((c, i) => {
+                const color = CLUSTER_COLORS[i % CLUSTER_COLORS.length];
+                const months = clusterActivityMonths(c);
+                const span = months.length ? `${months[0]} – ${months[months.length - 1]}` : '';
+                return `
+                    <div onclick="showClusterDetail('${escapeAttr(c.id)}')" title="${escapeAttr(c.summary || '')}"
+                        style="cursor:pointer; flex:1 1 220px; min-width:200px; max-width:320px; padding:0.85rem 1rem; background: var(--bg-dark); border-left: 3px solid ${color}; border-radius:8px;">
+                        <div style="font-weight:600; margin-bottom:0.25rem;">${escapeAttr(c.name)}</div>
+                        <div style="font-size:0.72rem; color: var(--text-secondary); margin-bottom:0.4rem;">${c.members.length} people${span ? ' · ' + span : ''}</div>
+                        <div style="font-size:0.8rem; color: var(--text-secondary); line-height:1.4;">${escapeAttr((c.summary || '').slice(0, 110))}${(c.summary || '').length > 110 ? '…' : ''}</div>
+                    </div>`;
+            }).join('');
+
+            // Bubble chart: x = first-active month index, y = member count, r = activity breadth
+            const allMonths = [...new Set(clusters.flatMap(clusterActivityMonths))].sort();
+            const monthIdx = Object.fromEntries(allMonths.map((m, i) => [m, i]));
+            const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            const canvas = document.getElementById('clustersBubbleChart');
+            if (canvas && typeof Chart !== 'undefined') {
+                if (clustersBubbleChart) { clustersBubbleChart.destroy(); clustersBubbleChart = null; }
+                const datasets = clusters.map((c, i) => {
+                    const months = clusterActivityMonths(c);
+                    const first = months.length ? monthIdx[months[0]] : 0;
+                    return {
+                        label: c.name,
+                        data: [{ x: first, y: c.members.length, r: Math.min(26, 6 + months.length * 2) }],
+                        backgroundColor: (CLUSTER_COLORS[i % CLUSTER_COLORS.length]) + 'cc',
+                        borderColor: CLUSTER_COLORS[i % CLUSTER_COLORS.length]
+                    };
+                });
+                clustersBubbleChart = new Chart(canvas.getContext('2d'), {
+                    type: 'bubble',
+                    data: { datasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { labels: { color: '#9ca3af', boxWidth: 12, font: { size: 10 } } },
+                            tooltip: {
+                                callbacks: {
+                                    label: (ctx) => {
+                                        const c = clusters[ctx.datasetIndex];
+                                        return `${c.name}: ${c.members.length} people, ${clusterActivityMonths(c).length} active months`;
+                                    }
+                                }
+                            }
+                        },
+                        onClick: (e, els) => { if (els.length) showClusterDetail(clusters[els[0].datasetIndex].id); },
+                        scales: {
+                            x: {
+                                min: -0.5, max: Math.max(0.5, allMonths.length - 0.5),
+                                ticks: {
+                                    color: '#9ca3af', stepSize: 1,
+                                    callback: (v) => { const m = allMonths[v]; if (!m) return ''; const [y, mo] = m.split('-'); return `${monthNames[parseInt(mo)-1]} ${y.slice(2)}`; }
+                                },
+                                grid: { color: 'rgba(255,255,255,0.05)' },
+                                title: { display: true, text: 'First active', color: '#9ca3af' }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                ticks: { color: '#9ca3af', precision: 0 },
+                                grid: { color: 'rgba(255,255,255,0.05)' },
+                                title: { display: true, text: 'Members', color: '#9ca3af' }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        function showClusterDetail(clusterId) {
+            const clusters = (categoryData && categoryData.social_clusters)
+                ? (categoryData.social_clusters.clusters || []) : [];
+            const c = clusters.find(x => x.id === clusterId);
+            if (!c) return;
+
+            const members = (c.members || []).map(m =>
+                `<span style="padding:0.3rem 0.6rem; background: var(--bg-dark); border-radius:20px; font-size:0.8rem;">${escapeAttr(m)}</span>`
+            ).join(' ');
+
+            const months = clusterActivityMonths(c);
+            const timeline = months.map(m => {
+                const info = c.months[m] || {};
+                const strength = typeof info.strength === 'number' ? info.strength : 0;
+                const note = info.note ? ` — ${escapeAttr(info.note)}` : '';
+                return `
+                    <div style="padding:0.35rem 0; font-size:0.82rem;">
+                        <span style="color: var(--accent-blue); font-weight:600;">${m}</span>
+                        <span style="display:inline-block; width:${Math.max(4, strength)}%; max-width:160px; height:6px; background: var(--accent-purple); border-radius:3px; margin:0 0.5rem; vertical-align:middle;"></span>
+                        <span style="color: var(--text-secondary);">${strength}${note}</span>
+                    </div>`;
+            }).join('');
+
+            const body = `
+                <p style="font-size:0.95rem; line-height:1.6; margin-bottom:1rem;">${escapeAttr(c.summary || '')}</p>
+                <h4>Members (${c.members.length})</h4>
+                <div style="display:flex; flex-wrap:wrap; gap:0.4rem; margin-bottom:1rem;">${members}</div>
+                ${months.length ? `<h4>Activity over time</h4><div>${timeline}</div>` : ''}
+            `;
+            document.getElementById('modalTitle').textContent = c.name;
+            document.getElementById('modalBody').innerHTML = body;
+            document.getElementById('infoModal').classList.add('active');
+        }
     </script>
 </body>
 </html>

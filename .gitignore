@@ -7,6 +7,9 @@ output/
 
 # Generated dashboard (built from template + data)
 dashboard.html
+analysis_2013_2026.html
+# Obsolete standalone template (superseded by templates/dashboard.html)
+sentiment_dashboard.html
 
 # LLM conversation data
 llm data/
@@ -39,7 +42,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# AI / Agent state
+.claude/
+
 # Temp files
 /tmp/
 *.log
-analysis_2013_2026.html

@@ -69,25 +69,38 @@ const persecutorPatterns = ['they always', 'they never', 'fault', 'blame', 'shou
 const rescuerPatterns = ['i need to help', 'fix this', 'save', 'let me handle', "i'll take care", "don't worry", "i'll do it for"];
 const empoweredPatterns = ['i choose', 'i will', 'i can', 'i decided', 'my responsibility', 'i want', 'i realize', 'i accept', 'i appreciate'];
 
-const peoplePatterns = {
-    'liliia': /\bliliia\b/gi,
-    'sarah': /\bsarah\b/gi,
-    'philip': /\bphilip\b/gi,
-    'dennis': /\bdennis\b/gi,
-    'mother': /\b(mother|mom|mum|mama)\b/gi,
-    'father': /\b(father|dad|papa)\b/gi,
-    'brother': /\bbrother\b/gi,
-    'sister': /\bsister\b/gi,
-    'therapist': /\b(therapist|therapy)\b/gi,
-    'dominik': /\bdominik\b/gi,
-    'geralf': /\bgeralf\b/gi,
-    'julie': /\bjulie\b/gi,
-    'maija': /\bmaija\b/gi,
-    'julius': /\bjulius\b/gi,
-    'konrad': /\bkonrad\b/gi,
-    'eglantina': /\beglantina\b/gi,
-    'jawad': /\bjawad\b/gi
-};
+function loadPeoplePatterns() {
+    const patterns = {
+        'mother': /\b(mother|mom|mum|mama)\b/gi,
+        'father': /\b(father|dad|papa)\b/gi,
+        'brother': /\bbrother\b/gi,
+        'sister': /\bsister\b/gi,
+        'therapist': /\b(therapist|therapy)\b/gi,
+        'partner': /\bpartner\b/gi,
+        'friend': /\bfriend\b/gi
+    };
+    // Load custom tracked people from gitignored data/people.json or env variable
+    const peopleFile = path.join(DATA_DIR, 'people.json');
+    let customNames = [];
+    if (fs.existsSync(peopleFile)) {
+        try {
+            customNames = JSON.parse(fs.readFileSync(peopleFile, 'utf8'));
+        } catch (e) {
+            console.warn('Warning: Could not parse data/people.json:', e.message);
+        }
+    } else if (process.env.PEOPLE_NAMES) {
+        customNames = process.env.PEOPLE_NAMES.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    for (const name of customNames) {
+        if (typeof name === 'string' && name.trim()) {
+            const clean = name.trim().toLowerCase();
+            const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            patterns[clean] = new RegExp(`\\b${escaped}\\b`, 'gi');
+        }
+    }
+    return patterns;
+}
+const peoplePatterns = loadPeoplePatterns();
 
 const stopwords = new Set([
     'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
@@ -167,13 +180,28 @@ function getMonthKey(date) {
     return `${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+// Unicode-aware word-boundary matcher. JS `\b` treats umlauts (ü/ö/ä/ß) as
+// non-word chars, so `\bwort\b` fails for German words and matches fragments.
+// We wrap the (escaped) needle in Unicode letter/number lookarounds instead.
+function escapeRegex(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+function makeBoundaryRegex(phrase) {
+    // Allow internal apostrophes/spaces in the phrase; bound on letters/numbers.
+    const body = escapeRegex(phrase.toLowerCase());
+    return new RegExp(`(?<![\\p{L}\\p{N}])${body}(?![\\p{L}\\p{N}])`, 'giu');
+}
+
+function countMatches(text, phrase) {
+    const m = text.match(makeBoundaryRegex(phrase));
+    return m ? m.length : 0;
+}
+
 function countPatterns(text, patterns) {
     let count = 0;
     const lower = text.toLowerCase();
     for (const p of patterns) {
-        const regex = new RegExp(p.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-        const m = lower.match(regex);
-        if (m) count += m.length;
+        count += countMatches(lower, p);
     }
     return count;
 }
@@ -181,21 +209,27 @@ function countPatterns(text, patterns) {
 function calculateSentiment(text) {
     const lower = text.toLowerCase();
     let hopeful = 0, despair = 0;
-    for (const w of hopefulWords) {
-        const m = lower.match(new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi'));
-        if (m) hopeful += m.length;
-    }
-    for (const w of despairWords) {
-        const m = lower.match(new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi'));
-        if (m) despair += m.length;
-    }
+    for (const w of hopefulWords) hopeful += countMatches(lower, w);
+    for (const w of despairWords) despair += countMatches(lower, w);
     const total = hopeful + despair;
     return total === 0 ? 0 : (hopeful - despair) / total;
 }
 
+// Negated agency phrases that should NOT count as agency (they're victim/limiting
+// language, already covered by victimPhrases). We subtract any agency phrase that
+// is immediately negated, e.g. "i can't", "ich kann nicht", "ich weiß nicht".
+const negatedAgency = [
+    "i can't", 'i cannot', 'i can not', "i won't", 'i will not', "i don't want",
+    'ich kann nicht', 'ich will nicht', 'ich weiß nicht', 'ich möchte nicht'
+];
+
 function calculateAgency(text) {
-    const agency = countPatterns(text, agencyPhrases);
-    const victim = countPatterns(text, victimPhrases);
+    const lower = text.toLowerCase();
+    let agency = countPatterns(lower, agencyPhrases);
+    // Remove negated forms double-counted by the bare agency phrases above.
+    for (const neg of negatedAgency) agency -= countMatches(lower, neg);
+    if (agency < 0) agency = 0;
+    const victim = countPatterns(lower, victimPhrases);
     const total = agency + victim;
     return total === 0 ? 50 : Math.round((agency / total) * 100);
 }
@@ -210,9 +244,12 @@ function calculateDramaTriangle(text) {
 }
 
 function getWordFrequencies(text) {
-    const words = text.toLowerCase()
-        .replace(/[^\w\s]/g, ' ')
-        .split(/\s+/)
+    // Unicode-aware tokenizer: keep letters/numbers (incl. umlauts); the old
+    // /[^\w\s]/ strip deleted umlauts and split "würde" → "w rde" producing junk
+    // tokens (rde/ber/nnen). We drop apostrophes/hyphens inside tokens so
+    // contractions normalize to their stopword forms ("i'm" → "im").
+    const words = (text.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || [])
+        .map(w => w.replace(/['’-]/g, ''))
         .filter(w => w.length > 2 && !stopwords.has(w) && !/^\d+$/.test(w));
     const freq = {};
     for (const word of words) freq[word] = (freq[word] || 0) + 1;
@@ -461,8 +498,11 @@ function loadBeingJournals() {
                 if (dateMatch) {
                     date = new Date(`${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`);
                 } else {
-                    date = new Date();
+                    // No parseable date in the filename: skip rather than dating
+                    // it today (which would pollute the current month's trend).
+                    continue;
                 }
+                if (isNaN(date.getTime())) continue;
                 if (content.trim().length > 20) {
                     entries.push({
                         id: `therapy-${file}`,
@@ -480,17 +520,22 @@ function loadBeingJournals() {
     return entries;
 }
 
-// Adapt neutral chat-source records {text, timestamp, source, sender, participants, chatName}
+// Adapt neutral chat-source records {text, timestamp, source, sender, isMine, participants, chatName}
 // into this pipeline's conversation-object shape.
+// We keep ONLY the user's own messages (isMine) so sentiment/agency/word-freq
+// reflect the user, not the other party in a 1:1 chat. Records with no isMine
+// field (e.g. journal notes) are treated as the user's and kept.
 function adaptChatRecords(records, titlePrefix) {
-    return records.map((r, i) => ({
-        id: `${r.source}-${r.timestamp.getTime()}-${i}`,
-        title: r.chatName ? `${titlePrefix}: ${r.chatName}` : titlePrefix,
-        created: r.timestamp,
-        messages: [{ text: r.text, timestamp: r.timestamp, role: 'user' }],
-        source: r.source,
-        metadata: { sender: r.sender, participants: r.participants, chat: r.chatName }
-    })).filter(c => c.created instanceof Date && !isNaN(c.created.getTime()));
+    return records
+        .filter(r => r.isMine !== false)
+        .map((r, i) => ({
+            id: `${r.source}-${r.timestamp.getTime()}-${i}`,
+            title: r.chatName ? `${titlePrefix}: ${r.chatName}` : titlePrefix,
+            created: r.timestamp,
+            messages: [{ text: r.text, timestamp: r.timestamp, role: 'user' }],
+            source: r.source,
+            metadata: { sender: r.sender, participants: r.participants, chat: r.chatName }
+        })).filter(c => c.created instanceof Date && !isNaN(c.created.getTime()));
 }
 
 function loadNewChatSources() {
@@ -562,7 +607,7 @@ function processData() {
         const monthKey = getMonthKey(conv.created);
 
         if (!monthlyData[monthKey]) {
-            monthlyData[monthKey] = { messages: 0, text: '', conversations: 0, titles: [], bySource: {} };
+            monthlyData[monthKey] = { messages: 0, textBySource: {}, conversations: 0, titles: [], bySource: {} };
         }
         if (!wordFreqByMonth[monthKey]) wordFreqByMonth[monthKey] = {};
         if (!dramaByMonth[monthKey]) dramaByMonth[monthKey] = { victim: 0, persecutor: 0, rescuer: 0, empowered: 0 };
@@ -577,15 +622,15 @@ function processData() {
             const weekKey = getWeekKey(msg.timestamp || conv.created);
             const msgMonth = getMonthKey(msg.timestamp || conv.created);
 
-            if (!weeklyData[weekKey]) weeklyData[weekKey] = { messages: 0, text: '', sentiment: 0, agency: 0 };
+            if (!weeklyData[weekKey]) weeklyData[weekKey] = { messages: 0, textBySource: {}, sentiment: 0, agency: 0 };
             if (!monthlyData[msgMonth]) {
-                monthlyData[msgMonth] = { messages: 0, text: '', conversations: 0, titles: [], bySource: {} };
+                monthlyData[msgMonth] = { messages: 0, textBySource: {}, conversations: 0, titles: [], bySource: {} };
             }
 
             weeklyData[weekKey].messages++;
-            weeklyData[weekKey].text += ' ' + msg.text;
+            weeklyData[weekKey].textBySource[conv.source] = (weeklyData[weekKey].textBySource[conv.source] || '') + ' ' + msg.text;
             monthlyData[msgMonth].messages++;
-            monthlyData[msgMonth].text += ' ' + msg.text;
+            monthlyData[msgMonth].textBySource[conv.source] = (monthlyData[msgMonth].textBySource[conv.source] || '') + ' ' + msg.text;
 
             // Word frequencies (skip for search - too many fragments)
             if (conv.source !== 'google_search') {
@@ -620,12 +665,12 @@ function processData() {
         // Detect events from titles
         const titleLower = conv.title.toLowerCase();
         const eventCategories = [
-            { kw: ['therapy', 'therapist', 'ifs', 'session'], cat: 'therapy' },
-            { kw: ['breakup', 'break up', 'ending', 'relationship', 'liliia', 'beziehung'], cat: 'relationship' },
-            { kw: ['job', 'work', 'interview', 'werkstudent', 'bewerbung', 'rolls royce', 'sap'], cat: 'work' },
-            { kw: ['doctor', 'hospital', 'injury', 'sick', 'health', 'arzt', 'fuss', 'foot', 'op'], cat: 'health' },
-            { kw: ['travel', 'trip', 'train', 'flight', 'bali', 'garbicz', 'retreat'], cat: 'travel' },
-            { kw: ['birthday', 'wedding', 'family', 'geburtstag', 'moving', 'umzug', 'wohnung'], cat: 'life' }
+            { kw: ['therapy', 'therapist', 'session', 'counseling'], cat: 'therapy' },
+            { kw: ['breakup', 'break up', 'ending', 'relationship', 'partner', 'beziehung', 'trennung'], cat: 'relationship' },
+            { kw: ['job', 'work', 'interview', 'career', 'promotion', 'bewerbung'], cat: 'work' },
+            { kw: ['doctor', 'hospital', 'injury', 'sick', 'health', 'arzt', 'clinic', 'surgery', 'op'], cat: 'health' },
+            { kw: ['travel', 'trip', 'train', 'flight', 'vacation', 'retreat'], cat: 'travel' },
+            { kw: ['birthday', 'wedding', 'family', 'geburtstag', 'moving', 'umzug', 'wohnung', 'relocation'], cat: 'life' }
         ];
         for (const { kw, cat } of eventCategories) {
             if (kw.some(k => titleLower.includes(k))) {
@@ -648,12 +693,31 @@ function processData() {
         return new Date(`${ma} 1, ${ya}`) - new Date(`${mb} 1, ${yb}`);
     });
 
+    // Equal-weight-per-source aggregation: compute sentiment/agency per source
+    // bucket (only buckets with text), then take the mean across sources. This
+    // stops a single high-volume source (e.g. 60k Telegram messages) from
+    // dominating a month that also has a handful of journal entries.
+    // SOURCE_WEIGHTS is the one explainable knob (all 1 = plain mean); do NOT
+    // weight by message count — that reintroduces the skew.
+    const SOURCE_WEIGHTS = {};
+    function aggregateBySource(textBySource) {
+        const sources = Object.keys(textBySource).filter(s => textBySource[s].trim().length > 0);
+        if (sources.length === 0) return { sentiment: 0, agency: 50 };
+        let sentSum = 0, agSum = 0, wSum = 0;
+        for (const s of sources) {
+            const w = SOURCE_WEIGHTS[s] ?? 1;
+            sentSum += w * calculateSentiment(textBySource[s]);
+            agSum += w * calculateAgency(textBySource[s]);
+            wSum += w;
+        }
+        return { sentiment: sentSum / wSum, agency: Math.round(agSum / wSum) };
+    }
+
     const weeklyResults = [];
     for (const week of weeks) {
         const data = weeklyData[week];
         if (data.messages > 0) {
-            const sentiment = calculateSentiment(data.text);
-            const agency = calculateAgency(data.text);
+            const { sentiment, agency } = aggregateBySource(data.textBySource);
             const wellbeing = Math.round(50 + sentiment * 45 + (agency - 50) * 0.15);
             weeklyResults.push({
                 week, sentiment: Math.round(sentiment * 100) / 100,
@@ -668,8 +732,7 @@ function processData() {
     for (const month of months) {
         const data = monthlyData[month];
         if (data.messages > 0) {
-            const sentiment = calculateSentiment(data.text);
-            const agency = calculateAgency(data.text);
+            const { sentiment, agency } = aggregateBySource(data.textBySource);
             const wellbeing = Math.round(50 + sentiment * 45 + (agency - 50) * 0.15);
             monthSummaries[month] = {
                 topics: [...new Set(data.titles.slice(0, 20))],

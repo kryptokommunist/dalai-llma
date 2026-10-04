@@ -5,12 +5,15 @@
   "main": "scripts/process_data.js",
   "scripts": {
     "setup": "mkdir -p data/anthropic data/openai output",
+    "preprocess": "python3 scripts/preprocess_data.py",
     "process": "node scripts/process_data.js",
     "analyze": "node scripts/analyze_all.js",
     "analyze:force": "node scripts/analyze_all.js --force",
     "build": "node scripts/build_dashboard.js",
-    "all": "npm run process && npm run build",
-    "full": "npm run process && npm run analyze && npm run build",
+    "build:analysis": "node scripts/build_analysis.js",
+    "check:privacy": "node scripts/check_privacy.js",
+    "all": "npm run process && npm run build && npm run build:analysis",
+    "full": "npm run process && npm run analyze && npm run build && npm run build:analysis",
     "serve": "npx serve . -p 3000",
     "test": "node verify_dashboard.js"
   },
