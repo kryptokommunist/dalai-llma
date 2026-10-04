@@ -73,12 +73,12 @@ function generateMonthlyDataJS(dashboardData) {
         return {
             month,
             label: formatMonthLabel(month),
-            messages: m.messages || 0,
-            convos: m.conversations || 0,
-            sentiment: m.sentiment || 0,
-            agency: m.agency || 50,
+            messages: m.messages ?? 0,
+            convos: m.conversations ?? 0,
+            sentiment: m.sentiment ?? 0,
+            agency: m.agency ?? 50,
             lateNight: 30, // placeholder
-            wellbeing: m.wellbeing || 50
+            wellbeing: m.wellbeing ?? 50
         };
     });
 }
@@ -89,12 +89,12 @@ function generateWeeklyDataJS(dashboardData) {
     return dashboardData.weeklyData.map(w => ({
         week: w.week,
         label: formatWeekLabel(w.week),
-        messages: w.messages || 0,
+        messages: w.messages ?? 0,
         convos: 0, // not tracked at week level
-        sentiment: w.sentiment || 0,
-        agency: w.agency || 50,
+        sentiment: w.sentiment ?? 0,
+        agency: w.agency ?? 50,
         lateNight: 30,
-        wellbeing: w.wellbeing || 50
+        wellbeing: w.wellbeing ?? 50
     }));
 }
 

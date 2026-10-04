@@ -18,12 +18,24 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 // Who "I" am across sources, for self-participation detection.
-const ME = {
-    names: ['marcus', 'kryptokommunist', 'you'],   // lowercased for matching
-    phones: ['+4917695855565'],
-    telegramUserId: '27397086',                    // from personal_information.user_id
-    twitterAccountId: '32420160'
-};
+// Loaded from gitignored data/me.json or environment variables; safe generic fallbacks for public repo.
+function loadMeConfig() {
+    const meFile = path.join(process.env.DATA_DIR || './data', 'me.json');
+    if (fs.existsSync(meFile)) {
+        try {
+            return JSON.parse(fs.readFileSync(meFile, 'utf8'));
+        } catch (e) {
+            console.warn('Warning: Could not parse data/me.json:', e.message);
+        }
+    }
+    return {
+        names: (process.env.ME_NAMES || 'me,myself,you').split(',').map(s => s.trim().toLowerCase()),
+        phones: (process.env.ME_PHONES || '').split(',').map(s => s.trim()).filter(Boolean),
+        telegramUserId: process.env.TELEGRAM_USER_ID || '',
+        twitterAccountId: process.env.TWITTER_ACCOUNT_ID || ''
+    };
+}
+const ME = loadMeConfig();
 
 const MONTH_PAD_DEFAULT = 1;
 
@@ -76,21 +88,36 @@ const nameIsMine = (name) => {
 function parseMarkdownEntry(filePath, fileName) {
     try {
         let content = fs.readFileSync(filePath, 'utf8');
-        content = content.replace(/^---[\s\S]*?---\n/, '');            // frontmatter
+
+        // Capture frontmatter (if any) before stripping, to recover a date.
+        // Tolerate a closing `---` at EOF or without a trailing newline — many
+        // Obsidian notes have only frontmatter + a short body with no newline
+        // after the delimiter, which a strict `---\n` would miss.
+        const fmMatch = content.match(/^---\n([\s\S]*?)\n---(?:\n|$)/);
+        const frontmatter = fmMatch ? fmMatch[1] : '';
+
+        content = content.replace(/^---\n[\s\S]*?\n---(?:\n|$)/, ''); // frontmatter
         content = content.replace(/\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g, '$1'); // wikilinks
         const trimmed = content.trim();
         if (trimmed.length < 20) return null;
 
+        let ts = null;
         const dateMatch = fileName.match(/(\d{4})-(\d{2})-(\d{2})/);
-        let ts;
+        const dmyMatch = fileName.match(/(\d{2})\.(\d{2})\.(\d{4})/); // DD.MM.YYYY (Therapy Sessions)
         if (dateMatch) {
             ts = new Date(`${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`);
+        } else if (dmyMatch) {
+            ts = new Date(`${dmyMatch[3]}-${dmyMatch[2]}-${dmyMatch[1]}`);
         } else {
-            ts = fs.statSync(filePath).mtime;
+            // Fall back to a date in frontmatter (`created:`/`date:`), NOT file mtime
+            // (mtime clusters everything at copy time and pollutes the time-series).
+            const fmDate = frontmatter.match(/^(?:created|date)\s*:\s*(\d{4})-(\d{2})-(\d{2})/im);
+            if (fmDate) ts = new Date(`${fmDate[1]}-${fmDate[2]}-${fmDate[3]}`);
         }
-        if (isNaN(ts.getTime())) return null;
+        // Undatable notes are excluded from the time-series rather than mis-dated.
+        if (!ts || isNaN(ts.getTime())) return null;
 
-        return { text: trimmed.substring(0, 2000), timestamp: ts, source: 'journal' };
+        return { text: trimmed.substring(0, 2000), timestamp: ts, source: 'journal', isMine: true };
     } catch (e) {
         return null;
     }
@@ -102,11 +129,32 @@ function parseMarkdownEntry(filePath, fileName) {
 // ---------------------------------------------------------------------------
 
 function parseWhatsAppDate(dateStr, timeStr) {
-    // dateStr like "4/13/25", timeStr like "5:46:12 PM" or "17:46:12"
-    const dm = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-    if (!dm) return null;
-    let [, mo, da, yr] = dm;
+    // dateStr like "4/13/25" (US iOS), "13/4/25" (DD/MM), or "13.04.25" (German dotted).
+    // timeStr like "5:46:12 PM" or "17:46:12".
+    let a, b, yr;
+    const slash = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    const dot = dateStr.match(/(\d{1,2})\.(\d{1,2})\.(\d{2,4})/);
+    let germanOrder = false;
+    if (dot) {
+        // German dotted dates are DD.MM.YY.
+        [, a, b, yr] = dot; germanOrder = true;
+    } else if (slash) {
+        [, a, b, yr] = slash;
+    } else {
+        return null;
+    }
     if (yr.length === 2) yr = '20' + yr;
+    let mo, da;
+    const n1 = Number(a), n2 = Number(b);
+    if (germanOrder) {
+        da = n1; mo = n2;                       // DD.MM
+    } else if (n1 > 12 && n2 <= 12) {
+        da = n1; mo = n2;                       // unambiguous DD/MM
+    } else if (n2 > 12 && n1 <= 12) {
+        mo = n1; da = n2;                       // unambiguous MM/DD (US default)
+    } else {
+        mo = n1; da = n2;                       // ambiguous → assume US MM/DD (export locale)
+    }
     let hh = 0, mm = 0;
     const tm = timeStr.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([APap][Mm])?/);
     if (tm) {
@@ -115,7 +163,7 @@ function parseWhatsAppDate(dateStr, timeStr) {
         if (mer === 'pm' && hh < 12) hh += 12;
         if (mer === 'am' && hh === 12) hh = 0;
     }
-    const d = new Date(Number(yr), Number(mo) - 1, Number(da), hh, mm);
+    const d = new Date(Number(yr), mo - 1, da, hh, mm);
     return isNaN(d.getTime()) ? null : d;
 }
 
@@ -125,7 +173,7 @@ function loadWhatsApp(whatsappDir, { monthsPadding = MONTH_PAD_DEFAULT } = {}) {
     const zips = fs.readdirSync(whatsappDir).filter(f => f.toLowerCase().endsWith('.zip'));
     let skippedNoSelf = 0, groupsWindowed = 0;
 
-    const lineRe = /^\[(\d{1,2}\/\d{1,2}\/\d{2,4}),?\s+([^\]]+)\]\s+([^:]+):\s?([\s\S]*)$/;
+    const lineRe = /^\[(\d{1,2}[./]\d{1,2}[./]\d{2,4}),?\s+([^\]]+)\]\s+([^:]+):\s?([\s\S]*)$/;
 
     for (const zip of zips) {
         const tmp = fs.mkdtempSync('/tmp/wa_');
@@ -152,6 +200,9 @@ function loadWhatsApp(whatsappDir, { monthsPadding = MONTH_PAD_DEFAULT } = {}) {
             const isGroup = senders.size > 2;
             const hasSelf = msgs.some(m => nameIsMine(m.sender));
             if (isGroup && !hasSelf) { skippedNoSelf++; continue; }
+            if (!isGroup && !hasSelf) {
+                console.warn(`  WhatsApp: 1:1 chat "${zip.replace(/\.zip$/i, '')}" has no self-sender match (check ME.names) — its messages will all be dropped as non-self`);
+            }
 
             let kept = msgs;
             if (isGroup) { kept = windowAroundSelf(msgs, m => nameIsMine(m.sender), monthsPadding); groupsWindowed++; }
@@ -164,6 +215,7 @@ function loadWhatsApp(whatsappDir, { monthsPadding = MONTH_PAD_DEFAULT } = {}) {
                     timestamp: m.timestamp,
                     source: 'whatsapp',
                     sender: m.sender,
+                    isMine: nameIsMine(m.sender),
                     chatName,
                     participants: [...senders]
                 });
@@ -197,7 +249,11 @@ function loadTelegram(resultJsonPath, { monthsPadding = MONTH_PAD_DEFAULT } = {}
     try { data = JSON.parse(fs.readFileSync(resultJsonPath, 'utf8')); }
     catch (e) { console.log('  Telegram: result.json unreadable'); return out; }
 
-    const myId = 'user' + (data.personal_information?.user_id || ME.telegramUserId);
+    const selfUserId = data.personal_information?.user_id || ME.telegramUserId;
+    if (!selfUserId) {
+        console.warn('  Telegram: no self user id (personal_information.user_id or ME.telegramUserId empty) — no messages can be attributed to self; all marked isMine:false');
+    }
+    const myId = selfUserId ? 'user' + selfUserId : null;
     const chats = data.chats?.list || [];
     let skippedNoSelf = 0;
 
@@ -229,6 +285,7 @@ function loadTelegram(resultJsonPath, { monthsPadding = MONTH_PAD_DEFAULT } = {}
                 timestamp: m.timestamp,
                 source: 'telegram',
                 sender: m.sender,
+                isMine: myId !== null && m.fromId === myId,
                 chatName: chat.name || 'Telegram chat',
                 participants
             });
@@ -266,12 +323,15 @@ function loadTwitter(dataDir) {
         if (!text || t.retweeted || /^RT @/.test(text)) continue;
         const ts = new Date(t.created_at);
         if (isNaN(ts.getTime())) continue;
-        out.push({ text: text.substring(0, 2000), timestamp: ts, source: 'twitter', sender: 'kryptokommunist' });
+        out.push({ text: text.substring(0, 2000), timestamp: ts, source: 'twitter', sender: 'kryptokommunist', isMine: true });
         tweetCount++;
     }
 
     // Direct messages (1:1 or group the user is inherently a party to → keep all).
     const dms = readYTD(path.join(dataDir, 'direct-messages.js'));
+    if (dms.length && !ME.twitterAccountId) {
+        console.warn('  Twitter: ME.twitterAccountId is empty — cannot tell which DM messages are self; all DMs marked isMine:false');
+    }
     let dmCount = 0;
     for (const conv of dms) {
         const c = conv.dmConversation || conv;
@@ -280,12 +340,13 @@ function loadTwitter(dataDir) {
             if (!m || !m.text) continue;
             const ts = new Date(m.createdAt || m.created_at);
             if (isNaN(ts.getTime())) continue;
-            const mine = String(m.senderId) === ME.twitterAccountId;
+            const mine = Boolean(ME.twitterAccountId) && String(m.senderId) === ME.twitterAccountId;
             out.push({
                 text: m.text.substring(0, 2000),
                 timestamp: ts,
                 source: 'twitter_dm',
                 sender: mine ? 'me' : String(m.senderId),
+                isMine: mine,
                 chatName: c.conversationId
             });
             dmCount++;
