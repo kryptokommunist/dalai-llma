@@ -10,8 +10,8 @@
  *
  * Group-chat rules (per the user's spec):
  *   - Skip any group chat the user never participated in.
- *   - Within a kept group chat, keep only messages within ±1 month of a month
- *     the user themselves sent in (windowAroundSelf). 1:1 chats keep everything.
+ *   - Within a kept group chat, keep only messages within ±1 week of a message
+ *     the user themselves sent (windowAroundSelf). 1:1 chats keep everything.
  */
 const fs = require('fs');
 const path = require('path');
@@ -37,41 +37,63 @@ function loadMeConfig() {
 }
 const ME = loadMeConfig();
 
-const MONTH_PAD_DEFAULT = 1;
+const WEEK_PAD_DAYS_DEFAULT = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function monthKey(d) {
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-
-/** Shift a YYYY-MM key by n months (n may be negative). */
-function shiftMonth(key, n) {
-    const [y, m] = key.split('-').map(Number);
-    const d = new Date(y, m - 1 + n, 1);
-    return monthKey(d);
-}
-
 /**
- * Keep only messages whose month is within ±monthsPadding of a month the user
- * sent in. `isMine(msg)` returns true when the message was sent by the user.
- * Messages must carry a `.timestamp` Date. Returns a filtered array.
+ * Keep only group messages sent within ±daysPadding (default 7, i.e. one week)
+ * of a message the user themselves sent. `isMine(msg)` returns true when the
+ * message was sent by the user. Messages must carry a `.timestamp` Date.
+ *
+ * Rationale (per the user's spec): a group thread is only relevant around the
+ * times the user was actually participating, so each self message opens a
+ * ±1-week window and only messages falling inside the union of those windows
+ * are kept. If the user never sent anything in the group, nothing is kept
+ * (the caller skips such groups entirely before calling this). Returns a
+ * filtered array, preserving input order.
  */
-function windowAroundSelf(messages, isMine, monthsPadding = MONTH_PAD_DEFAULT) {
-    const myMonths = new Set();
+function windowAroundSelf(messages, isMine, daysPadding = WEEK_PAD_DAYS_DEFAULT) {
+    const padMs = daysPadding * DAY_MS;
+    // Collect the timestamps (ms) of every message the user sent.
+    const myTimes = [];
     for (const m of messages) {
         if (m.timestamp && !isNaN(m.timestamp) && isMine(m)) {
-            myMonths.add(monthKey(m.timestamp));
+            myTimes.push(m.timestamp.getTime());
         }
     }
-    if (myMonths.size === 0) return [];
-    const keep = new Set();
-    for (const mk of myMonths) {
-        for (let i = -monthsPadding; i <= monthsPadding; i++) keep.add(shiftMonth(mk, i));
+    if (myTimes.length === 0) return [];
+    myTimes.sort((a, b) => a - b);
+
+    // Merge each self-time's [t-pad, t+pad] into non-overlapping intervals so
+    // membership tests stay O(log n) via binary search over interval starts.
+    const intervals = [];
+    for (const t of myTimes) {
+        const lo = t - padMs, hi = t + padMs;
+        const last = intervals[intervals.length - 1];
+        if (last && lo <= last[1]) {
+            if (hi > last[1]) last[1] = hi;      // extend current interval
+        } else {
+            intervals.push([lo, hi]);            // start a new interval
+        }
     }
-    return messages.filter(m => m.timestamp && !isNaN(m.timestamp) && keep.has(monthKey(m.timestamp)));
+
+    const inWindow = (ms) => {
+        // Binary search for the last interval whose start <= ms.
+        let lo = 0, hi = intervals.length - 1, found = -1;
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (intervals[mid][0] <= ms) { found = mid; lo = mid + 1; }
+            else hi = mid - 1;
+        }
+        return found >= 0 && ms <= intervals[found][1];
+    };
+
+    return messages.filter(m =>
+        m.timestamp && !isNaN(m.timestamp) && inWindow(m.timestamp.getTime()));
 }
 
 const nameIsMine = (name) => {
@@ -174,7 +196,7 @@ function parseWhatsAppDate(dateStr, timeStr) {
     return isNaN(d.getTime()) ? null : d;
 }
 
-function loadWhatsApp(whatsappDir, { monthsPadding = MONTH_PAD_DEFAULT } = {}) {
+function loadWhatsApp(whatsappDir, { daysPadding = WEEK_PAD_DAYS_DEFAULT } = {}) {
     const out = [];
     if (!fs.existsSync(whatsappDir)) return out;
     const zips = fs.readdirSync(whatsappDir).filter(f => f.toLowerCase().endsWith('.zip'));
@@ -222,7 +244,7 @@ function loadWhatsApp(whatsappDir, { monthsPadding = MONTH_PAD_DEFAULT } = {}) {
             }
 
             let kept = msgs;
-            if (isGroup) { kept = windowAroundSelf(msgs, m => nameIsMine(m.sender), monthsPadding); groupsWindowed++; }
+            if (isGroup) { kept = windowAroundSelf(msgs, m => nameIsMine(m.sender), daysPadding); groupsWindowed++; }
 
             const chatName = zip.replace(/\.zip$/i, '');
             for (const m of kept) {
@@ -259,7 +281,7 @@ function flattenTelegramText(text) {
     return '';
 }
 
-function loadTelegram(resultJsonPath, { monthsPadding = MONTH_PAD_DEFAULT } = {}) {
+function loadTelegram(resultJsonPath, { daysPadding = WEEK_PAD_DAYS_DEFAULT } = {}) {
     const out = [];
     if (!fs.existsSync(resultJsonPath)) return out;
     let data;
@@ -301,7 +323,7 @@ function loadTelegram(resultJsonPath, { monthsPadding = MONTH_PAD_DEFAULT } = {}
         }
 
         let kept = msgs;
-        if (isGroup) kept = windowAroundSelf(msgs, m => isSelfFromId(m.fromId), monthsPadding);
+        if (isGroup) kept = windowAroundSelf(msgs, m => isSelfFromId(m.fromId), daysPadding);
 
         const participants = [...new Set(msgs.map(m => m.sender))];
         for (const m of kept) {
